@@ -9,7 +9,7 @@ DesVault is a decentralized storage network that ensures privacy and security us
 
 ## 🚀 Run a Storage Node
 ```bash
-git clone https://github.com/DesVault/desvault.git
+git clone https://https://github.com/ArguableExorcist8/desvault-storage-node.git
 cd desvault
 ./desvault run
 
