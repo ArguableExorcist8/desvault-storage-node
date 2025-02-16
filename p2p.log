@@ -1,0 +1,147 @@
+P2P 2025/02/07 21:07:34 logger.go:17: Logger initialized.
+P2P 2025/02/07 21:07:34 main.go:130: Application started.
+P2P 2025/02/07 21:07:57 logger.go:17: Logger initialized.
+P2P 2025/02/07 21:07:57 main.go:130: Application started.
+P2P 2025/02/07 21:08:43 logger.go:17: Logger initialized.
+P2P 2025/02/07 21:08:43 main.go:130: Application started.
+P2P 2025/02/07 21:08:54 logger.go:17: Logger initialized.
+P2P 2025/02/07 21:08:54 main.go:130: Application started.
+P2P 2025/02/07 21:09:04 logger.go:17: Logger initialized.
+P2P 2025/02/07 21:09:04 main.go:130: Application started.
+P2P 2025/02/07 21:09:26 logger.go:17: Logger initialized.
+P2P 2025/02/07 21:09:26 main.go:130: Application started.
+P2P 2025/02/07 21:14:57 logger.go:17: Logger initialized.
+P2P 2025/02/07 21:14:57 main.go:149: Application started.
+P2P 2025/02/07 21:17:21 logger.go:17: Logger initialized.
+P2P 2025/02/07 21:17:21 main.go:149: Application started.
+P2P 2025/02/07 22:13:14 logger.go:17: Logger initialized.
+P2P 2025/02/07 22:13:14 main.go:133: Application started.
+P2P 2025/02/07 22:16:22 logger.go:17: Logger initialized.
+P2P 2025/02/07 22:16:22 main.go:133: Application started.
+P2P 2025/02/07 22:45:43 logger.go:17: Logger initialized.
+P2P 2025/02/07 22:45:43 main.go:133: Application started.
+P2P 2025/02/07 22:49:32 logger.go:17: Logger initialized.
+P2P 2025/02/07 22:49:32 main.go:133: Application started.
+P2P 2025/02/08 01:22:18 logger.go:17: Logger initialized.
+P2P 2025/02/08 01:22:18 main.go:117: Application started.
+P2P 2025/02/08 17:51:53 logger.go:17: Logger initialized.
+P2P 2025/02/08 17:51:53 main.go:116: Application started.
+P2P 2025/02/08 18:09:17 logger.go:17: Logger initialized.
+P2P 2025/02/08 18:09:17 main.go:116: Application started.
+P2P 2025/02/08 18:25:01 logger.go:17: Logger initialized.
+P2P 2025/02/08 18:25:01 main.go:116: Application started.
+P2P 2025/02/08 18:26:21 logger.go:17: Logger initialized.
+P2P 2025/02/08 18:26:21 main.go:116: Application started.
+P2P 2025/02/08 18:26:52 logger.go:17: Logger initialized.
+P2P 2025/02/08 18:26:52 main.go:116: Application started.
+P2P 2025/02/08 18:41:39 logger.go:17: Logger initialized.
+P2P 2025/02/08 18:41:39 main.go:116: Application started.
+P2P 2025/02/08 18:49:41 logger.go:17: Logger initialized.
+P2P 2025/02/08 18:49:41 main.go:116: Application started.
+P2P 2025/02/08 18:52:35 logger.go:17: Logger initialized.
+P2P 2025/02/08 18:52:35 main.go:116: Application started.
+P2P 2025/02/08 18:53:10 logger.go:17: Logger initialized.
+P2P 2025/02/08 18:53:10 main.go:116: Application started.
+P2P 2025/02/08 19:11:37 logger.go:17: Logger initialized.
+P2P 2025/02/08 19:11:37 main.go:116: Application started.
+P2P 2025/02/08 19:11:49 logger.go:17: Logger initialized.
+P2P 2025/02/08 19:11:49 main.go:116: Application started.
+P2P 2025/02/08 19:16:40 logger.go:17: Logger initialized.
+P2P 2025/02/08 19:16:40 main.go:116: Application started.
+P2P 2025/02/08 19:19:29 logger.go:17: Logger initialized.
+P2P 2025/02/08 19:19:29 main.go:116: Application started.
+P2P 2025/02/08 19:28:23 logger.go:17: Logger initialized.
+P2P 2025/02/08 19:28:23 main.go:116: Application started.
+P2P 2025/02/08 19:37:40 logger.go:17: Logger initialized.
+P2P 2025/02/08 19:37:40 main.go:131: [System] Storage Node Starting...
+P2P 2025/02/08 19:49:35 logger.go:17: Logger initialized.
+P2P 2025/02/08 19:49:35 main.go:140: [System] Storage Node Starting...
+P2P 2025/02/08 19:54:52 logger.go:17: Logger initialized.
+P2P 2025/02/08 19:54:52 main.go:140: [System] Storage Node Starting...
+P2P 2025/02/08 20:07:57 logger.go:17: Logger initialized.
+P2P 2025/02/08 20:07:57 main.go:150: [System] Storage Node Starting in Chat Mode...
+P2P 2025/02/08 20:08:11 logger.go:17: Logger initialized.
+P2P 2025/02/08 20:08:11 main.go:218: [System] Storage Node Starting in Default Mode...
+P2P 2025/02/08 20:09:30 logger.go:17: Logger initialized.
+P2P 2025/02/08 20:09:30 main.go:218: [System] Storage Node Starting in Default Mode...
+P2P 2025/02/08 20:10:18 logger.go:17: Logger initialized.
+P2P 2025/02/08 20:10:18 main.go:218: [System] Storage Node Starting in Default Mode...
+P2P 2025/02/08 20:11:51 logger.go:17: Logger initialized.
+P2P 2025/02/08 20:11:51 main.go:218: [System] Storage Node Starting in Default Mode...
+P2P 2025/02/08 20:20:26 logger.go:17: Logger initialized.
+P2P 2025/02/08 20:20:26 main.go:218: [System] Storage Node Starting in Default Mode...
+P2P 2025/02/08 20:27:25 logger.go:17: Logger initialized.
+P2P 2025/02/08 20:27:25 main.go:231: [System] Storage Node Starting in Default Mode...
+P2P 2025/02/08 20:28:51 logger.go:17: Logger initialized.
+P2P 2025/02/08 20:28:51 main.go:231: [System] Storage Node Starting in Default Mode...
+P2P 2025/02/08 20:31:06 logger.go:17: Logger initialized.
+P2P 2025/02/08 20:31:06 main.go:164: [System] Storage Node Starting in Chat Mode...
+P2P 2025/02/08 20:39:28 logger.go:17: Logger initialized.
+P2P 2025/02/08 20:39:28 main.go:231: [System] Storage Node Starting in Default Mode...
+P2P 2025/02/08 20:39:52 logger.go:17: Logger initialized.
+P2P 2025/02/08 20:39:52 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/08 20:40:19 logger.go:17: Logger initialized.
+P2P 2025/02/08 20:40:19 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/08 20:40:32 logger.go:17: Logger initialized.
+P2P 2025/02/08 20:40:32 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/08 20:40:43 logger.go:17: Logger initialized.
+P2P 2025/02/08 21:01:10 logger.go:17: Logger initialized.
+P2P 2025/02/08 21:01:44 logger.go:17: Logger initialized.
+P2P 2025/02/08 21:01:44 main.go:235: Storage Node Starting in Default Mode...
+P2P 2025/02/08 21:20:49 logger.go:17: Logger initialized.
+P2P 2025/02/08 21:20:49 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/08 21:21:14 logger.go:17: Logger initialized.
+P2P 2025/02/09 16:00:28 logger.go:17: Logger initialized.
+P2P 2025/02/09 16:00:28 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/09 16:01:02 logger.go:17: Logger initialized.
+P2P 2025/02/09 16:02:34 logger.go:17: Logger initialized.
+P2P 2025/02/09 16:02:41 logger.go:17: Logger initialized.
+P2P 2025/02/09 16:02:46 logger.go:17: Logger initialized.
+P2P 2025/02/09 16:02:46 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/09 16:03:13 logger.go:17: Logger initialized.
+P2P 2025/02/09 16:22:35 logger.go:17: Logger initialized.
+P2P 2025/02/09 16:22:35 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/09 16:31:28 logger.go:17: Logger initialized.
+P2P 2025/02/09 16:31:28 main.go:229: Storage Node Starting in Default Mode...
+P2P 2025/02/09 16:47:10 logger.go:17: Logger initialized.
+P2P 2025/02/09 16:47:10 main.go:229: Storage Node Starting in Default Mode...
+P2P 2025/02/10 12:12:46 logger.go:17: Logger initialized.
+P2P 2025/02/10 12:12:46 main.go:229: Storage Node Starting in Default Mode...
+P2P 2025/02/10 12:36:22 logger.go:17: Logger initialized.
+P2P 2025/02/10 12:36:22 main.go:229: Storage Node Starting in Default Mode...
+P2P 2025/02/10 14:31:52 logger.go:17: Logger initialized.
+P2P 2025/02/10 14:31:52 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 14:53:21 logger.go:17: Logger initialized.
+P2P 2025/02/10 14:53:21 main.go:257: Storage Node Starting in Default Mode...
+P2P 2025/02/10 14:54:33 logger.go:17: Logger initialized.
+P2P 2025/02/10 14:54:33 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 16:15:44 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:15:44 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 16:15:51 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:15:51 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 16:16:26 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:16:26 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 16:16:42 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:16:42 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 16:16:57 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:16:57 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 16:17:07 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:17:21 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:17:21 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 16:28:03 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:28:03 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 16:28:10 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:28:10 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 16:28:19 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:28:19 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 16:28:28 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:28:28 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 16:28:34 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:28:49 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:28:49 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 16:31:08 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:31:08 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 16:32:52 logger.go:17: Logger initialized.
+P2P 2025/02/10 16:32:52 main.go:230: Storage Node Starting in Default Mode...
+P2P 2025/02/10 16:34:53 logger.go:17: Logger initialized.
+P2P 2025/02/11 00:42:30 logger.go:17: Logger initialized.

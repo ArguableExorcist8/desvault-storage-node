@@ -1,0 +1,19 @@
+{
+    "12D3KooWXYZ12345": {
+      "nodeID": "12D3KooWXYZ12345",
+      "nodeType": "local",
+      "basePoints": 1000,
+      "multiplier": 2.0,
+      "totalPoints": 2000,
+      "last_updated": "2025-02-10T18:00:00Z"
+    },
+    "12D3KooWABC67890": {
+      "nodeID": "12D3KooWABC67890",
+      "nodeType": "cloud",
+      "basePoints": 1000,
+      "multiplier": 1.0,
+      "totalPoints": 1000,
+      "last_updated": "2025-02-10T18:15:00Z"
+    }
+  }
+  

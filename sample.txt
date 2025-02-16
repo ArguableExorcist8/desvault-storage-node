@@ -1,0 +1,213 @@
+Hello, DesVault!
+
+
+package main
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/host"
+	libnetwork "github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+
+	"desvault/storage-node/auth"
+	"desvault/storage-node/logger"
+	"desvault/storage-node/network"
+	"desvault/storage-node/points"
+	"desvault/storage-node/setup"
+	"desvault/storage-node/cli"
+	"desvault/storage-node/storage"
+)
+
+// PrintASCII prints the standard DesVault ASCII art banner.
+func PrintASCII() {
+	fmt.Println(`
+█████╗ ███████╗███████╗██╗   ██╗ █████╗ ██╗   ██╗██╗  ████████╗
+██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██║   ██║██║  ╚══██╔══╝
+██║  ██║█████╗  ███████╗██║   ██║███████║██║   ██║██║     ██║   
+██║  ██║██╔══╝  ╚════██║╚██╗ ██╔╝██╔══██║██║   ██║██║     ██║   
+██████╔╝███████╗███████║ ╚████╔╝ ██║  ██║╚██████╔╝███████╗██║   
+╚═════╝ ╚══════╝╚══════╝  ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝   
+`)
+}
+
+// createHost initializes a new Libp2p node.
+func createHost() (host.Host, error) {
+	port := os.Getenv("P2P_PORT")
+	if port == "" {
+		port = "4001"
+	}
+	h, err := libp2p.New(libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/0.0.0.0/tcp/%s", port)))
+	if err != nil {
+		return nil, err
+	}
+	return h, nil
+}
+
+// sharePeers auto-connects and propagates newly discovered peers.
+func sharePeers(h host.Host) {
+	failedPeers := make(map[peer.ID]bool)
+	for _, p := range h.Peerstore().Peers() {
+		if h.Network().Connectedness(p) != libnetwork.Connected && !failedPeers[p] {
+			err := h.Connect(context.Background(), peer.AddrInfo{ID: p})
+			if err != nil {
+				log.Printf("Failed to connect to peer %s: %v\n", p, err)
+				failedPeers[p] = true
+			} else {
+				log.Printf("Connected to peer: %s\n", p)
+			}
+		}
+	}
+}
+
+// startAPIServer initializes the REST API using Gin with production-friendly settings.
+func startAPIServer() {
+	// Set Gin to release mode.
+	gin.SetMode(gin.ReleaseMode)
+
+	// Create a new router.
+	router := gin.New()
+
+	// Add Logger and Recovery middleware.
+	router.Use(gin.Logger(), gin.Recovery())
+
+	// Set trusted proxies (none trusted in this example).
+	if err := router.SetTrustedProxies([]string{}); err != nil {
+		log.Fatal("Error setting trusted proxies: ", err)
+	}
+
+	// Define API routes.
+	router.POST("/upload", auth.ValidateRequest, func(c *gin.Context) {
+		file, _, err := c.Request.FormFile("file")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		tempFile, err := os.CreateTemp("", "upload_")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer tempFile.Close()
+
+		_, err = io.Copy(tempFile, file)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		metadata, err := storage.UploadFileWithMetadata(tempFile.Name())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"cid": metadata.CID})
+	})
+
+	router.GET("/files", auth.ValidateRequest, func(c *gin.Context) {
+		files, err := storage.ListFiles()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"files": files})
+	})
+
+	router.GET("/download/:cid", auth.ValidateRequest, func(c *gin.Context) {
+		cid := c.Param("cid")
+		filePath, err := storage.GetFilePath(cid)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+			return
+		}
+		c.File(filePath)
+	})
+
+	// Get API port from environment.
+	port := os.Getenv("API_PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("Server running on port %s\n", port)
+	log.Fatal(router.Run(":" + port))
+}
+
+// handleChatCommand enters the chatroom. It clears the screen once,
+// prints a chatroom header, and then enters a loop where each new message
+// (prefixed with the abbreviated Peer ID) is appended on the same page.
+func handleChatCommand(abbrevID string) {
+	// Clear the screen and display the chatroom header once.
+	fmt.Print("\033[H\033[2J") // ANSI escape sequence to clear the terminal
+	fmt.Println(`
+██████╗ ███████╗███████╗██╗   ██╗ █████╗ ██╗   ██╗██╗  ████████╗
+██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██║   ██║██║  ╚══██╔══╝
+██║  ██║█████╗  ███████╗██║   ██║███████║██║   ██║██║     ██║   
+██║  ██║██╔══╝  ╚════██║╚██╗ ██╔╝██╔══██║██║   ██║██║     ██║   
+██████╔╝███████╗███████║ ╚████╔╝ ██║  ██║╚██████╔╝███████╗██║   
+╚═════╝ ╚══════╝╚══════╝  ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝   
+`)
+	fmt.Println("DesVault CLI Chatroom")
+	fmt.Println("-------------------------")
+	fmt.Println("Type your message and press Enter to send. Press Ctrl+C to exit the chatroom.")
+	fmt.Println()
+
+	// Create a reader for user input.
+	reader := bufio.NewReader(os.Stdin)
+
+	// Chat loop: each message is printed with the abbreviated Peer ID prefix.
+	for {
+		fmt.Print("> ")
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Println("Error reading input, exiting chatroom.")
+			break
+		}
+		// Print the message with the abbreviated Peer ID.
+		// Example: [12D3...Gfx] Hello World
+		fmt.Printf("[%s] %s", abbrevID, input)
+	}
+}
+
+// writePID writes the current process PID to a file for later use.
+func writePID() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Println("[!] Could not determine home directory for PID file:", err)
+		return
+	}
+	desvaultDir := home + string(os.PathSeparator) + ".desvault"
+	if err := os.MkdirAll(desvaultDir, 0755); err != nil {
+		log.Println("[!] Failed to create directory for PID file:", err)
+		return
+	}
+	pidFile := desvaultDir + string(os.PathSeparator) + "node.pid"
+	pid := os.Getpid()
+	f, err := os.OpenFile(pidFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Println("[!] Could not open PID file:", err)
+		return
+	}
+	defer f.Close()
+	if _, err := f.WriteString(fmt.Sprintf("%d\n", pid)); err != nil {
+		log.Println("[!] Failed to write PID:", err)
+	} else {
+		log.Printf("[+] PID %d written to %s\n", pid, pidFile)
+	}
+}
+
+func main() {
+    cli.Execute()
+}
