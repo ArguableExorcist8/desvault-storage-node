@@ -7,7 +7,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"DesVault/storage-node/storage" // adjust the path if necessary
+	"DesVault/storage-node/storage" 
 )
 
 var DB *gorm.DB

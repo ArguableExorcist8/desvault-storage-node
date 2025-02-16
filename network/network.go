@@ -62,7 +62,7 @@ func (s *AutoDiscoveryService) Start(ctx context.Context) {
 }
 
 // InitializeNode creates a libp2p host with a DHT instance.
-// NOTE: We have removed the logging of the Peer ID here to avoid duplicate output.
+// removed the logging of the Peer ID here to avoid duplicate output.
 func InitializeNode(ctx context.Context) (*AutoDiscoveryService, error) {
 	h, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"))
 	if err != nil {

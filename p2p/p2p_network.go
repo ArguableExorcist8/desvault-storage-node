@@ -13,8 +13,6 @@ import (
 // It returns the host, the DHT, and an error (if any).
 func SetupDHT(ctx context.Context) (host.Host, *dht.IpfsDHT, error) {
 	// Create a new libp2p host.
-	// Since your version does not support passing a context (via WithContext),
-	// we call New() without any options.
 	h, err := libp2p.New()
 	if err != nil {
 		return nil, nil, err

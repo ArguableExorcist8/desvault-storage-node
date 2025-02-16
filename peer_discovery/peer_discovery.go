@@ -33,7 +33,6 @@ func BroadcastDiscovery() error {
 }
 
 // ListenForPeers listens on UDP for incoming discovery messages.
-// It returns a slice of IP addresses (as strings) from which the expected message was received.
 func ListenForPeers(timeout time.Duration) ([]string, error) {
 	addr := net.UDPAddr{
 		Port: broadcastPort,

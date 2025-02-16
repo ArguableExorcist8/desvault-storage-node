@@ -32,7 +32,9 @@ func StartChat() {
 			break
 		}
 
-		// For demonstration, iterate over peers in the local Peerstore.
+		// For demonstration, iterate over peers in the local Peerstore. for the next version i need to ake it global 
+		// 
+		// also another DRAGGGGGGGGGGG
 		for _, p := range host.Peerstore().Peers() {
 			fmt.Printf("[Sent to %s]: %s\n", p.ShortString(), text)
 		}

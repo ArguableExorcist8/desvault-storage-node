@@ -18,7 +18,10 @@ var (
 )
 
 // GenerateToken creates a secure authentication token for the node.
-// In a production system, you might load this from configuration or an environment variable.
+// 
+// 
+// whaaaat a DRAGGGGGGGGGGGGGG
+// i need to load this from configuration or an environment variable.
 func GenerateToken() string {
 	tokenLock.Lock()
 	defer tokenLock.Unlock()

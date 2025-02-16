@@ -41,7 +41,7 @@ func getNodeStatus() string {
 	return "Running"
 }
 
-// printCLIBanner prints the main ASCII art banner and header.
+// Ignore one ASCII art banner and header.
 func printCLIBanner() {
 	fmt.Println(`
 ██████╗ ███████╗███████╗██╗   ██╗ █████╗ ██╗   ██╗██╗  ████████╗
@@ -53,7 +53,6 @@ func printCLIBanner() {
 	fmt.Println("\nDesVault CLI")
 }
 
-// printChatBanner prints the chat-specific ASCII art banner and instructions.
 func printChatBanner() {
 	fmt.Println(`
 ██████╗ ███████╗███████╗██╗   ██╗ █████╗ ██╗   ██╗██╗  ████████╗
@@ -138,7 +137,9 @@ var tlsCmd = &cobra.Command{
 	Use:   "tls",
 	Short: "Start a secure QUIC channel using TLS directly",
 	Run: func(cmd *cobra.Command, args []string) {
-		// For demonstration, we assume certificate files exist at these paths.
+		// For demonstration, we assume certificate files exist at these paths. 
+		// 
+		// i need to confirm on before i release the next version
 		certFile := "server.crt"
 		keyFile := "server.key"
 		tlsConfig, err := encryption.CreateTLSConfig(certFile, keyFile)
