@@ -37,7 +37,7 @@ var (
 )
 
 // encryptionKey is a 32-byte key for AES-256 encryption.
-// generate and manage this key securely.
+// In production, generate and manage this key securely.
 var encryptionKey = []byte("0123456789abcdef0123456789abcdef") // 32 bytes
 
 // GetStorageDir returns the dedicated storage folder path.

@@ -1,213 +1,285 @@
-Hello, DesVault!
+Detiled Step‑by‑Step Guide for Contributors
+Step 1: Clone the Repository
+Open your terminal (or Command Prompt/PowerShell on Windows).
+Clone the repository:
+bash
+Copy
+Edit
+git clone https://github.com/ArguableExorcist8/desvault-storage-node.git
+cd desvault-storage-node
+Purpose:
+This copies the entire codebase onto your local machine so you can develop, test, and contribute.
 
+Step 2: Install Prerequisites
+Your system must have Go, IPFS, PostgreSQL, and optionally Docker (if you choose to containerize later). Follow the instructions below for your OS.
 
-package main
+2A: Install Go
+Linux:
 
-import (
-	"bufio"
-	"context"
-	"fmt"
-	"io"
-	"log"
-	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
+Download the latest Go tarball from golang.org/dl. For example:
+bash
+Copy
+Edit
+wget https://golang.org/dl/go1.20.4.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.20.4.linux-amd64.tar.gz
+Add Go to your PATH (add the following line to your ~/.bashrc or ~/.zshrc):
+bash
+Copy
+Edit
+export PATH=$PATH:/usr/local/go/bin
+Reload your shell or run:
+bash
+Copy
+Edit
+source ~/.bashrc
+Verify installation:
+bash
+Copy
+Edit
+go version
+Windows:
 
-	"github.com/gin-gonic/gin"
-	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p/core/host"
-	libnetwork "github.com/libp2p/go-libp2p/core/network"
-	"github.com/libp2p/go-libp2p/core/peer"
+Visit golang.org/dl and download the Windows installer (MSI file).
+Run the installer and follow the on‑screen instructions.
+Open Command Prompt or PowerShell and run:
+cmd
+Copy
+Edit
+go version
+Ensure that the Go binary directory is added to your PATH automatically.
+macOS:
 
-	"desvault/storage-node/auth"
-	"desvault/storage-node/logger"
-	"desvault/storage-node/network"
-	"desvault/storage-node/points"
-	"desvault/storage-node/setup"
-	"desvault/storage-node/cli"
-	"desvault/storage-node/storage"
-)
+Download the macOS package from golang.org/dl (pkg file) and run the installer.
+Alternatively, install via Homebrew:
+bash
+Copy
+Edit
+brew install go
+Open Terminal and run:
+bash
+Copy
+Edit
+go version
+2B: Install Docker (Optional but Recommended for Containerization)
+Linux (Ubuntu example):
 
-// PrintASCII prints the standard DesVault ASCII art banner.
-func PrintASCII() {
-	fmt.Println(`
-█████╗ ███████╗███████╗██╗   ██╗ █████╗ ██╗   ██╗██╗  ████████╗
-██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██║   ██║██║  ╚══██╔══╝
-██║  ██║█████╗  ███████╗██║   ██║███████║██║   ██║██║     ██║   
-██║  ██║██╔══╝  ╚════██║╚██╗ ██╔╝██╔══██║██║   ██║██║     ██║   
-██████╔╝███████╗███████║ ╚████╔╝ ██║  ██║╚██████╔╝███████╗██║   
-╚═════╝ ╚══════╝╚══════╝  ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝   
-`)
-}
+Update package information and install prerequisites:
+bash
+Copy
+Edit
+sudo apt-get update
+sudo apt-get install ca-certificates curl gnupg lsb-release
+Add Docker’s official GPG key:
+bash
+Copy
+Edit
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+Set up the stable repository:
+bash
+Copy
+Edit
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+Install Docker Engine:
+bash
+Copy
+Edit
+sudo apt-get update
+sudo apt-get install docker-ce docker-ce-cli containerd.io
+(Optional) Install Docker Compose:
+bash
+Copy
+Edit
+sudo apt-get install docker-compose
+Windows:
 
-// createHost initializes a new Libp2p node.
-func createHost() (host.Host, error) {
-	port := os.Getenv("P2P_PORT")
-	if port == "" {
-		port = "4001"
-	}
-	h, err := libp2p.New(libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/0.0.0.0/tcp/%s", port)))
-	if err != nil {
-		return nil, err
-	}
-	return h, nil
-}
+Download Docker Desktop for Windows from docker.com.
+Install Docker Desktop and follow the prompts.
+Open Command Prompt or PowerShell and run:
+cmd
+Copy
+Edit
+docker --version
+docker-compose --version
+macOS:
 
-// sharePeers auto-connects and propagates newly discovered peers.
-func sharePeers(h host.Host) {
-	failedPeers := make(map[peer.ID]bool)
-	for _, p := range h.Peerstore().Peers() {
-		if h.Network().Connectedness(p) != libnetwork.Connected && !failedPeers[p] {
-			err := h.Connect(context.Background(), peer.AddrInfo{ID: p})
-			if err != nil {
-				log.Printf("Failed to connect to peer %s: %v\n", p, err)
-				failedPeers[p] = true
-			} else {
-				log.Printf("Connected to peer: %s\n", p)
-			}
-		}
-	}
-}
+Download Docker Desktop for Mac from docker.com.
+Install and launch Docker Desktop.
+Verify installation in Terminal:
+bash
+Copy
+Edit
+docker --version
+docker-compose --version
+2C: Install IPFS
+Linux:
 
-// startAPIServer initializes the REST API using Gin with production-friendly settings.
-func startAPIServer() {
-	// Set Gin to release mode.
-	gin.SetMode(gin.ReleaseMode)
+Download the IPFS distribution from dist.ipfs.io/go-ipfs. For example:
+bash
+Copy
+Edit
+wget https://dist.ipfs.io/go-ipfs/v0.18.1/go-ipfs_v0.18.1_linux-amd64.tar.gz
+tar -xvf go-ipfs_v0.18.1_linux-amd64.tar.gz
+cd go-ipfs
+sudo bash install.sh
+Initialize IPFS:
+bash
+Copy
+Edit
+ipfs init
+ipfs daemon &
+Windows:
 
-	// Create a new router.
-	router := gin.New()
+Download the Windows binary from dist.ipfs.io/go-ipfs.
+Extract and run the installer or manually add the ipfs.exe to your PATH.
+Open Command Prompt and run:
+cmd
+Copy
+Edit
+ipfs init
+ipfs daemon
+macOS:
 
-	// Add Logger and Recovery middleware.
-	router.Use(gin.Logger(), gin.Recovery())
+Install via Homebrew:
+bash
+Copy
+Edit
+brew install ipfs
+ipfs init
+ipfs daemon &
+Alternatively, download the package from dist.ipfs.io/go-ipfs.
+2D: Install PostgreSQL
+Linux (Ubuntu):
 
-	// Set trusted proxies (none trusted in this example).
-	if err := router.SetTrustedProxies([]string{}); err != nil {
-		log.Fatal("Error setting trusted proxies: ", err)
-	}
+Update packages and install:
+bash
+Copy
+Edit
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+Follow Step 3 below to create your database and user.
+Windows:
 
-	// Define API routes.
-	router.POST("/upload", auth.ValidateRequest, func(c *gin.Context) {
-		file, _, err := c.Request.FormFile("file")
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		tempFile, err := os.CreateTemp("", "upload_")
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		defer tempFile.Close()
+Download PostgreSQL from postgresql.org.
+Run the installer, then use pgAdmin or the psql command-line tool to create your database and user.
+macOS:
 
-		_, err = io.Copy(tempFile, file)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
+Install via Homebrew:
+bash
+Copy
+Edit
+brew install postgresql
+brew services start postgresql
+Use psql (or a GUI tool like Postico) to create your database and user.
+Step 3: Create and Set Up Database Login Credentials
+Each node uses a local PostgreSQL database to store file metadata. Follow these instructions:
 
-		metadata, err := storage.UploadFileWithMetadata(tempFile.Name())
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
+Using psql on Linux/macOS (or via pgAdmin on Windows):
 
-		c.JSON(http.StatusOK, gin.H{"cid": metadata.CID})
-	})
+Open the PostgreSQL shell:
+bash
+Copy
+Edit
+psql -U postgres
+Create a new user:
+sql
+Copy
+Edit
+CREATE USER desvaultuser WITH PASSWORD 'mysecret';
+Create a new database:
+sql
+Copy
+Edit
+CREATE DATABASE desvault;
+Grant privileges to the user on the new database:
+sql
+Copy
+Edit
+GRANT ALL PRIVILEGES ON DATABASE desvault TO desvaultuser;
+Exit the shell:
+sql
+Copy
+Edit
+\q
+Set the environment variable for your database connection:
+bash
+Copy
+Edit
+export DATABASE_URL="host=localhost user=desvaultuser password=mysecret dbname=desvault port=5432 sslmode=disable"
+Purpose:
+Your SQL database stores file metadata (filename, note, file size, upload date, shard info). Each node uses its own local database in a decentralized system.
 
-	router.GET("/files", auth.ValidateRequest, func(c *gin.Context) {
-		files, err := storage.ListFiles()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"files": files})
-	})
+Step 4: Set Other Environment Variables
+Set additional required environment variables:
 
-	router.GET("/download/:cid", auth.ValidateRequest, func(c *gin.Context) {
-		cid := c.Param("cid")
-		filePath, err := storage.GetFilePath(cid)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
-			return
-		}
-		c.File(filePath)
-	})
+bash
+Copy
+Edit
+export PORT=8080
+export AUTH_TOKEN=secret123
+Purpose:
 
-	// Get API port from environment.
-	port := os.Getenv("API_PORT")
-	if port == "" {
-		port = "8080"
-	}
+PORT: API server listening port.
+AUTH_TOKEN: Token used to secure API endpoints.
+Step 5: Build the CLI Tool
+In the repository root, build the CLI binary:
 
-	log.Printf("Server running on port %s\n", port)
-	log.Fatal(router.Run(":" + port))
-}
+bash
+Copy
+Edit
+go build -o desvault .
+Purpose:
+This compiles your Go code (which includes your Cobra commands) into a single executable (desvault) that bundles all services.
 
-// handleChatCommand enters the chatroom. It clears the screen once,
-// prints a chatroom header, and then enters a loop where each new message
-// (prefixed with the abbreviated Peer ID) is appended on the same page.
-func handleChatCommand(abbrevID string) {
-	// Clear the screen and display the chatroom header once.
-	fmt.Print("\033[H\033[2J") // ANSI escape sequence to clear the terminal
-	fmt.Println(`
-██████╗ ███████╗███████╗██╗   ██╗ █████╗ ██╗   ██╗██╗  ████████╗
-██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██║   ██║██║  ╚══██╔══╝
-██║  ██║█████╗  ███████╗██║   ██║███████║██║   ██║██║     ██║   
-██║  ██║██╔══╝  ╚════██║╚██╗ ██╔╝██╔══██║██║   ██║██║     ██║   
-██████╔╝███████╗███████║ ╚████╔╝ ██║  ██║╚██████╔╝███████╗██║   
-╚═════╝ ╚══════╝╚══════╝  ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝   
-`)
-	fmt.Println("DesVault CLI Chatroom")
-	fmt.Println("-------------------------")
-	fmt.Println("Type your message and press Enter to send. Press Ctrl+C to exit the chatroom.")
-	fmt.Println()
+Step 6: Run the Entire System with One Command
+Now run:
 
-	// Create a reader for user input.
-	reader := bufio.NewReader(os.Stdin)
+bash
+Copy
+Edit
+./desvault run
+What Happens When You Run This Command:
 
-	// Chat loop: each message is printed with the abbreviated Peer ID prefix.
-	for {
-		fmt.Print("> ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			fmt.Println("Error reading input, exiting chatroom.")
-			break
-		}
-		// Print the message with the abbreviated Peer ID.
-		// Example: [12D3...Gfx] Hello World
-		fmt.Printf("[%s] %s", abbrevID, input)
-	}
-}
+First-Time Setup:
+Creates necessary directories (e.g., $HOME/.desvault), writes the PID file.
+Start IPFS Daemon:
+Checks if the IPFS daemon is running; if not, it starts it.
+Initialize Database & Storage:
+Connects to PostgreSQL (using your DATABASE_URL) and runs migrations, and creates a permanent storage folder for file shards.
+Start Node Services:
+Sets up networking, peer discovery, mDNS, DHT bootstrap, etc.
+Start API Server:
+Launches the API endpoints for file upload, download, and listing—all in one process.
+Purpose:
+This single command bundles all services, so contributors don't need to start multiple processes manually.
 
-// writePID writes the current process PID to a file for later use.
-func writePID() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		log.Println("[!] Could not determine home directory for PID file:", err)
-		return
-	}
-	desvaultDir := home + string(os.PathSeparator) + ".desvault"
-	if err := os.MkdirAll(desvaultDir, 0755); err != nil {
-		log.Println("[!] Failed to create directory for PID file:", err)
-		return
-	}
-	pidFile := desvaultDir + string(os.PathSeparator) + "node.pid"
-	pid := os.Getpid()
-	f, err := os.OpenFile(pidFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Println("[!] Could not open PID file:", err)
-		return
-	}
-	defer f.Close()
-	if _, err := f.WriteString(fmt.Sprintf("%d\n", pid)); err != nil {
-		log.Println("[!] Failed to write PID:", err)
-	} else {
-		log.Printf("[+] PID %d written to %s\n", pid, pidFile)
-	}
-}
+Step 7: Verify Operation
+Check Terminal Logs:
+Look for messages indicating that:
 
-func main() {
-    cli.Execute()
-}
+IPFS daemon is running.
+Node services and API server are up.
+Database migrations have completed.
+Test API Endpoints:
+Open your browser and navigate to http://localhost:8080/files to verify file listing, or use your front‑end components to upload and download files.
+
+Optional: Docker Compose for a One‑Command Startup
+For an even simpler setup, you can containerize your services. Create a docker-compose.yml file that defines containers for your API, IPFS, PostgreSQL, and front‑end. Then contributors can run:
+
+bash
+Copy
+Edit
+docker-compose up --build
+Purpose:
+Containerizing makes it easier to run the system on any platform with Docker installed—eliminating manual installation steps.
+
+Final Notes
+Documentation:
+Include this guide in your repository's README so new contributors know exactly how to set up their environment on Linux, Windows, or macOS.
+Single Command Startup:
+After setting up the prerequisites and environment variables, contributors only need to run ./desvault run (or use Docker Compose) to start the entire system.
+Development vs. Production:
+These steps are tailored for local development. For production, consider using a container orchestration system, secure key management, and robust deployment processes.
+By following this guide, contributors can clone the repository, install all prerequisites, set up their database credentials, build the CLI tool, and start the entire decentralized DesVault system with one command. This streamlines development and collaboration across different platforms.
+

@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
@@ -35,7 +34,7 @@ func getEnv(key, defaultValue string) string {
 var (
 	authToken = getEnv("AUTH_TOKEN", "secret123")
 	port      = getEnv("PORT", "8080")
-	dbURL     = os.Getenv("DATABASE_URL") 
+	dbURL     = os.Getenv("DATABASE_URL") // e.g., "host=localhost user=desvaultuser password=mysecret dbname=desvault port=5432 sslmode=disable"
 )
 
 // --------------------
@@ -74,7 +73,7 @@ func formatFileSize(size int64) string {
 // --------------------
 
 type FileMetadataModel struct {
-	// Force the column name to be "cid" so that queries like "cid = ?" work.
+	// Force the column name to be "cid" instead of the default "c_id"
 	CID       string         `gorm:"column:cid;primaryKey;not null;size:255" json:"cid"`
 	FileName  string         `gorm:"size:255" json:"fileName"`
 	Note      string         `gorm:"size:255" json:"note"`
@@ -137,7 +136,7 @@ func initDB() {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 
-	// For development, drop the table if it exists to refresh the schema.
+	// For development purposes, drop the table if it exists to refresh the schema.
 	if db.Migrator().HasTable(&FileMetadataModel{}) {
 		if err := db.Migrator().DropTable(&FileMetadataModel{}); err != nil {
 			log.Fatalf("failed to drop table: %v", err)
@@ -205,55 +204,11 @@ func rateLimitMiddleware() gin.HandlerFunc {
 }
 
 // --------------------
-// IPFS Auto-Start Helpers
-// --------------------
-
-// isIPFSRunning checks if the IPFS API is available.
-func isIPFSRunning() bool {
-	resp, err := http.Get("http://localhost:5001/api/v0/version")
-	if err != nil {
-		return false
-	}
-	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
-}
-
-// startIPFSDaemon starts the IPFS daemon if not already running.
-func startIPFSDaemon() error {
-	if isIPFSRunning() {
-		log.Println("IPFS daemon already running.")
-		return nil
-	}
-	log.Println("IPFS daemon not running, starting it...")
-	cmd := exec.Command("ipfs", "daemon")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start IPFS daemon: %w", err)
-	}
-	// Wait up to 20 seconds for IPFS to start.
-	for i := 0; i < 10; i++ {
-		time.Sleep(2 * time.Second)
-		if isIPFSRunning() {
-			log.Println("IPFS daemon started successfully.")
-			return nil
-		}
-	}
-	return fmt.Errorf("IPFS daemon did not start in time")
-}
-
-// --------------------
 // Main
 // --------------------
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
-
-	// Automatically start IPFS daemon if not running.
-	if err := startIPFSDaemon(); err != nil {
-		log.Fatalf("Failed to start IPFS daemon: %v", err)
-	}
-
 	initDB()
 	storage.InitializeStorage()
 
@@ -262,17 +217,17 @@ func main() {
 	router.Use(gin.Recovery())
 	router.Use(secureHeadersMiddleware())
 	router.Use(rateLimitMiddleware())
-	router.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(http.StatusNoContent)
-			return
-		}
-		c.Next()
-	})
+    router.Use(func(c *gin.Context) {
+    c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+    c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+    c.Writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+    c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
+    if c.Request.Method == "OPTIONS" {
+        c.AbortWithStatus(http.StatusNoContent)
+        return
+    }
+    c.Next()
+})
 
 	authorized := router.Group("/", authMiddleware)
 
@@ -371,47 +326,48 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"files": responses})
 	})
 
-	// GET /download/:cid: Download a file using its CID.
-	authorized.GET("/download/:cid", func(c *gin.Context) {
-		cid := c.Param("cid")
-		var model FileMetadataModel
-		if err := db.First(&model, "cid = ?", cid).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{
-					"code":    http.StatusNotFound,
-					"message": "File metadata not found",
-				})
-			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"code":    http.StatusInternalServerError,
-					"message": fmt.Sprintf("Database error: %v", err),
-				})
-			}
-			return
-		}
-		var shards []storage.Shard
-		if err := json.Unmarshal(model.Shards, &shards); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code":    http.StatusInternalServerError,
-				"message": fmt.Sprintf("Error parsing shards: %v", err),
-			})
-			return
-		}
-		metadata := storage.FileMetadata{
-			CID:      model.CID,
-			FileName: model.FileName,
-			Shards:   shards,
-		}
-		outputPath := filepath.Join(os.TempDir(), model.FileName)
-		if err := storage.DownloadFile(metadata.Shards, outputPath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code":    http.StatusInternalServerError,
-				"message": fmt.Sprintf("Error reconstructing file: %v", err),
-			})
-			return
-		}
-		c.FileAttachment(outputPath, model.FileName)
-	})
+// GET /download/:cid: Download a file using its CID.
+authorized.GET("/download/:cid", func(c *gin.Context) {
+    cid := c.Param("cid")
+    var model FileMetadataModel
+    if err := db.First(&model, "cid = ?", cid).Error; err != nil {
+        if err == gorm.ErrRecordNotFound {
+            c.JSON(http.StatusNotFound, gin.H{
+                "code":    http.StatusNotFound,
+                "message": "File metadata not found",
+            })
+        } else {
+            c.JSON(http.StatusInternalServerError, gin.H{
+                "code":    http.StatusInternalServerError,
+                "message": fmt.Sprintf("Database error: %v", err),
+            })
+        }
+        return
+    }
+    var shards []storage.Shard
+    if err := json.Unmarshal(model.Shards, &shards); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{
+            "code":    http.StatusInternalServerError,
+            "message": fmt.Sprintf("Error parsing shards: %v", err),
+        })
+        return
+    }
+    metadata := storage.FileMetadata{
+        CID:      model.CID,
+        FileName: model.FileName,
+        Shards:   shards,
+    }
+    outputPath := filepath.Join(os.TempDir(), model.FileName)
+    if err := storage.DownloadFile(metadata.Shards, outputPath); err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{
+            "code":    http.StatusInternalServerError,
+            "message": fmt.Sprintf("Error reconstructing file: %v", err),
+        })
+        return
+    }
+    // Serve the file with its original name as an attachment.
+    c.FileAttachment(outputPath, model.FileName)
+})
 
 	addr := ":" + port
 	log.Printf("Server running on %s", addr)
