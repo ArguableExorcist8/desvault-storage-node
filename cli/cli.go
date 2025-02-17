@@ -507,7 +507,6 @@ var storageCmd = &cobra.Command{
 	},
 }
 
-// ... [Other parts of cli.go remain unchanged]
 
 var runCmd = &cobra.Command{
 	Use:   "run",
