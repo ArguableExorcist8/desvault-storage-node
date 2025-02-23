@@ -587,7 +587,6 @@ var storageCmd = &cobra.Command{
 		}
 	},
 }
-
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Start the Storage Node",
