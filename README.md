@@ -66,7 +66,7 @@ cd desvault-storage-node
 ## 🔗 Repository  
 [DesVault Storage Node](https://github.com/ArguableExorcist8/desvault-storage-node) - A hybrid open-source storage node for decentralized storage.
 
-🛠 Advanced Configuration
+## 🛠 Advanced Configuration
 ### Master API & Seed Nodes
 **Master API**:
 Coordinates shard distribution, authentication, and reputation tracking. A hybrid failover setup is planned with a secondary API on a different cloud provider for redundancy.
@@ -81,3 +81,29 @@ Ensure proper logging is set up for debugging and performance monitoring.
 Regularly update dependencies and monitor for security advisories.
 
 ### Feel free to fork, star, or contribute to the project. For any issues or feature requests, please open an issue or submit a pull request.
+
+## 📝 License
+This project is licensed under the Apache-2.0 license. See the LICENSE file for details.
+
+## 📄 Changelog
+#### Version pre-release 0.1:
+Initial release featuring decentralized encrypted storage, file management, and Real-Time Analytics.
+
+## 🔮 Future Enhancements
+- **Blockchain Integration:**  
+  Planned support for integrating blockchain technology to further enhance decentralization and trust.
+
+- **Enhanced API Failover Mechanisms:**  
+  Implementation of robust failover strategies to ensure uninterrupted service even if the primary API goes down.
+
+- **Performance Optimizations:**  
+  Ongoing improvements to boost file processing speeds, reduce latency, and scale the network efficiently.
+
+- **Collaborative Chat:**  
+  Advanced real-time chat features for enhanced communication between node operators and users, supporting collaboration and community engagement.
+
+- **Marketplace:**  
+  Development of a decentralized marketplace to buy, sell, and trade storage capacity and related services.
+
+- **Node Reward System & Creators Hub:**  
+  Introduction of an incentive structure to reward node runners, along with a dedicated hub for content creators to monetize and share their work.
