@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"DesVault/storage-node/encryption"
@@ -25,10 +26,21 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/quic-go/quic-go"
 	"github.com/spf13/cobra"
+	"golang.org/x/time/rate"
 	"gorm.io/driver/postgres"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+)
+
+// ========================
+// Configuration Constants
+// ========================
+
+const (
+	ModerateUploadSpeed   = "5–10 Mbps"  // Informational: moderate upload speed.
+	ModerateDownloadSpeed = "10–25 Mbps" // Informational: moderate download speed.
+	MaxFileSizeBytes      = 524288000    // 500 MB in bytes.
 )
 
 // ========================
@@ -83,7 +95,6 @@ func formatFileSize(size int64) string {
 
 // FileMetadataModel is the DB model for file metadata.
 type FileMetadataModel struct {
-	// Force the column name to be "cid" so that queries work correctly.
 	CID       string         `gorm:"column:cid;primaryKey;not null;size:255" json:"cid"`
 	FileName  string         `gorm:"size:255" json:"fileName"`
 	Note      string         `gorm:"size:255" json:"note"`
@@ -159,17 +170,42 @@ func initDB() {
 // Middleware Definitions
 // ========================
 
+var visitors = make(map[string]*rate.Limiter)
+var mtx sync.Mutex
+
+// getVisitor returns the rate limiter for the given IP, creating one if necessary.
+func getVisitor(ip string) *rate.Limiter {
+	mtx.Lock()
+	defer mtx.Unlock()
+	limiter, exists := visitors[ip]
+	if !exists {
+		// 1 request per second with a burst of 5.
+		limiter = rate.NewLimiter(1, 5)
+		visitors[ip] = limiter
+	}
+	return limiter
+}
+
+func rateLimitMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ip := c.ClientIP()
+		limiter := getVisitor(ip)
+		if !limiter.Allow() {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"code":    http.StatusTooManyRequests,
+				"message": "Rate limit exceeded",
+			})
+			return
+		}
+		c.Next()
+	}
+}
+
 func secureHeadersMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Writer.Header().Set("X-Content-Type-Options", "nosniff")
 		c.Writer.Header().Set("X-Frame-Options", "DENY")
 		c.Writer.Header().Set("Content-Security-Policy", "default-src 'self'")
-		c.Next()
-	}
-}
-
-func rateLimitMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
 		c.Next()
 	}
 }
@@ -349,6 +385,15 @@ func startAPIServer() {
 			return
 		}
 
+		// Check file size (must not exceed 500 MB)
+		if file.Size > MaxFileSizeBytes {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"code":    http.StatusBadRequest,
+				"message": "File exceeds maximum allowed size (500 MB)",
+			})
+			return
+		}
+
 		note := c.PostForm("note")
 		if note == "" {
 			note = "No note available"
@@ -403,6 +448,9 @@ func startAPIServer() {
 			"code":    http.StatusOK,
 			"message": "File uploaded successfully",
 			"data":    model,
+			"uploadSpeed":   ModerateUploadSpeed,
+			"downloadSpeed": ModerateDownloadSpeed,
+			"maxFileSize":   "500 MB",
 		})
 	})
 
@@ -482,6 +530,39 @@ func startAPIServer() {
 }
 
 // ========================
+// Additional Helper Functions (Enhanced Service Health Check)
+// ========================
+
+func getNodeStatus() string {
+	// Check IPFS daemon status.
+	ipfsStatus := "DOWN"
+	if isIPFSRunning() {
+		ipfsStatus = "UP"
+	}
+
+	// Check network connectivity.
+	peers := network.GetConnectedPeers()
+	networkStatus := "LOW"
+	if len(peers) > 0 {
+		networkStatus = "GOOD"
+	}
+
+	// Check database connectivity.
+	dbStatus := "UNKNOWN"
+	if db != nil {
+		if sqlDB, err := db.DB(); err == nil {
+			if err := sqlDB.Ping(); err == nil {
+				dbStatus = "UP"
+			} else {
+				dbStatus = "DOWN"
+			}
+		}
+	}
+
+	return fmt.Sprintf("IPFS: %s, Network: %s (%d peers), Database: %s", ipfsStatus, networkStatus, len(peers), dbStatus)
+}
+
+// ========================
 // CLI Commands
 // ========================
 
@@ -507,17 +588,15 @@ var storageCmd = &cobra.Command{
 	},
 }
 
-// ... [Other parts of cli.go remain unchanged]
-
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Start the Storage Node",
 	Run: func(cmd *cobra.Command, args []string) {
 		printCLIBanner()
-		// Run first-time setup routines
+		// Run first-time setup routines.
 		setup.FirstTimeSetup()
 
-		// Ensure the .desvault directory exists
+		// Ensure the .desvault directory exists.
 		home, err := os.UserHomeDir()
 		if err != nil {
 			fmt.Println("[!] Could not determine home directory:", err)
@@ -528,7 +607,7 @@ var runCmd = &cobra.Command{
 			fmt.Println("[!] Failed to create directory:", err)
 			return
 		}
-		// Write the current PID to the node.pid file
+		// Write the current PID to the node.pid file.
 		pidFile := filepath.Join(desvaultDir, "node.pid")
 		pid := os.Getpid()
 		f, err := os.OpenFile(pidFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -546,7 +625,7 @@ var runCmd = &cobra.Command{
 			log.Fatalf("Failed to start IPFS daemon: %v", err)
 		}
 
-		// Initialize the database and storage
+		// Initialize the database and storage.
 		initDB()
 		storage.InitializeStorage()
 
@@ -554,11 +633,10 @@ var runCmd = &cobra.Command{
 		ctx := context.Background()
 		startNode(ctx)
 
-		// Start the API server in the same process.
+		// Start the API server in the same process on its own port.
 		startAPIServer()
 	},
 }
-
 
 var stopCmd = &cobra.Command{
 	Use:   "stop",

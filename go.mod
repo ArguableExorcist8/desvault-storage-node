@@ -15,6 +15,7 @@ require (
 	github.com/oschwald/geoip2-golang v1.11.0
 	github.com/quic-go/quic-go v0.49.0
 	github.com/spf13/cobra v1.8.1
+	golang.org/x/time v0.5.0
 	gorm.io/datatypes v1.2.5
 	gorm.io/driver/postgres v1.5.11
 	gorm.io/driver/sqlite v1.5.7
