@@ -5,10 +5,8 @@ DesVault is a decentralized storage network that ensures privacy and security by
 
 ## 🌟 Features
 - **Peer-to-Peer Encrypted Storage:** Secure, decentralized file storage with robust encryption to protect your data.
-- **Hybrid Storage Options:** Seamlessly supports both local storage and cloud integration.
 - **Decentralized Node Networking:** Reliable peer discovery with support for multiple seed nodes to ensure robust connectivity.
 - **Real-Time Analytics & Health Monitoring:** Get live insights into system performance, network connectivity, and overall node health.
-- **Comprehensive API & CLI Tools:** Manage and monitor your storage node effortlessly with secure, rate-limited API endpoints and an intuitive command-line interface.
 - **Modular & Scalable Architecture:** Designed for easy expansion and integration of future features.
 - **Future Blockchain Integration:** Planned support for integrating blockchain technology for enhanced decentralization and trust.
 
