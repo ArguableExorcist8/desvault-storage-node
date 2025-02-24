@@ -62,7 +62,10 @@ cd desvault-storage-node
 - **Maximum File Size**: 500 MB per file (files exceeding this limit will be rejected)
 
 ## 🔗 Repository  
-[DesVault Storage Node](https://github.com/ArguableExorcist8/desvault-storage-node) - A hybrid open-source storage node for decentralized storage.
+
+### [DesVault Storage Node](https://github.com/ArguableExorcist8/desvault-storage-node) - A hybrid open-source storage node for decentralized storage.
+
+### [Read the DesVault Whitepaper](./WHITEPAPER.md)
 
 ## 🛠 Advanced Configuration
 ### Master API & Seed Nodes
