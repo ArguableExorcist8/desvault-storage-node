@@ -113,3 +113,9 @@ Implement comprehensive version tracking, allowing users to view, compare, and r
 Enable node runners to connect their existing cloud storage accounts (e.g., AWS, Google Cloud, Mega, Azure) to DesVault. This integration will automatically convert a runner’s cloud storage capacity into a DesVault node, allowing them to participate in the network and earn rewards while leveraging their established cloud infrastructure. This feature bridges centralized and decentralized storage by offering a seamless, automated way for users to extend their node capacity.
 - **Hybrid Node Integration:**
 Introduce a new “Hybrid Node” model that combines local storage resources with cloud-based storage solutions into a single node setup. This hybrid approach allows users to optimize for performance, cost, and reliability—leveraging local hardware when available while seamlessly tapping into cloud storage when needed. It further enhances network flexibility, ensuring maximum uptime and efficient resource utilization.
+- **NFT-Based Access Control & DRM:**
+Token-gated file access, NFT-based digital rights management (DRM) for secure content, and automated royalty payments for creators.
+- **NFT DAO & Governance:**
+Community voting via governance NFTs, membership tiers for premium perks, and user-driven feature proposals.
+- **NFT Account Recovery:**
+Users can mint an NFT as a password recovery key, enabling decentralized account restoration without relying on email.
