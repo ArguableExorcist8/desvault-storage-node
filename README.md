@@ -93,21 +93,25 @@ Initial release featuring decentralized encrypted storage, file management, and 
 
 - **Blockchain Integration:**
 Planned support for integrating blockchain technology to further enhance decentralization, data integrity, and trust.
--**Enhanced API Failover Mechanisms:**
+- **Enhanced API Failover Mechanisms:**
 Implementation of  failover strategies and redundant API endpoints to ensure uninterrupted service, even in the event of primary endpoint issues.
--**Performance Optimizations:**
+- **Performance Optimizations:**
 Ongoing improvements to boost file processing speeds, reduce latency, and scale the network efficiently as data volumes and user demand grow.
--**Collaborative Chat & Real-Time Collaboration:**
+- **Collaborative Chat & Real-Time Collaboration:**
 Advanced real-time chat features for enhanced communication between node operators and users, including integrated tools for collaborative file editing (document, spreadsheet, and presentation editing), in-line commenting, and version control.
--**Integrated Collaborative Document Editors:**
+- **Integrated Collaborative Document Editors:**
 Built‑in document, spreadsheet, and presentation editors that allow multiple users to edit, annotate, and track changes simultaneously, creating a seamless work environment.
--**Marketplace & Plugin Ecosystem:**
+- **Marketplace & Plugin Ecosystem:**
 Development of a decentralized marketplace to buy, sell, and trade storage capacity and related services. In parallel, launch a plugin ecosystem with robust APIs and SDKs so developers can create and integrate third‑party tools—ranging from creative applications to additional productivity features.
--**Creators Hub:**
+- **Creators Hub:**
 Introduction of a dedicated Creators Hub featuring digital asset management, monetization tools (including smart contract-based licensing and rights management), and tools for organizing and sharing creative content.
--**Enhanced File & Media Editing Tools:**
+- **Enhanced File & Media Editing Tools:**
 Beyond basic document editing, include native image, audio, and video editing capabilities to empower creators to make quick edits without leaving the platform.
--**Mobile and Desktop Applications:**
+- **Mobile and Desktop Applications:**
 Native apps for both mobile and desktop platforms to ensure full editing, collaboration, and file management capabilities are available on the go.
--**Advanced Version Control and File History:**
+- **Advanced Version Control and File History:**
 Implement comprehensive version tracking, allowing users to view, compare, and restore previous versions of their files seamlessly.
+- **Cloud Storage Node Integration:**
+Enable node runners to connect their existing cloud storage accounts (e.g., AWS, Google Cloud, Mega, Azure) to DesVault. This integration will automatically convert a runner’s cloud storage capacity into a DesVault node, allowing them to participate in the network and earn rewards while leveraging their established cloud infrastructure. This feature bridges centralized and decentralized storage by offering a seamless, automated way for users to extend their node capacity.
+- **Hybrid Node Integration:**
+Introduce a new “Hybrid Node” model that combines local storage resources with cloud-based storage solutions into a single node setup. This hybrid approach allows users to optimize for performance, cost, and reliability—leveraging local hardware when available while seamlessly tapping into cloud storage when needed. It further enhances network flexibility, ensuring maximum uptime and efficient resource utilization.
