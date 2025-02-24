@@ -90,20 +90,24 @@ This project is licensed under the Apache-2.0 license. See the LICENSE file for 
 Initial release featuring decentralized encrypted storage, file management, and Real-Time Analytics.
 
 ## 🔮 Future Enhancements
-- **Blockchain Integration:**  
-  Planned support for integrating blockchain technology to further enhance decentralization and trust.
 
-- **Enhanced API Failover Mechanisms:**  
-  Implementation of robust failover strategies to ensure uninterrupted service even if the primary API goes down.
-
-- **Performance Optimizations:**  
-  Ongoing improvements to boost file processing speeds, reduce latency, and scale the network efficiently.
-
-- **Collaborative Chat:**  
-  Advanced real-time chat features for enhanced communication between node operators and users, supporting collaboration and community engagement.
-
-- **Marketplace:**  
-  Development of a decentralized marketplace to buy, sell, and trade storage capacity and related services.
-
-- **Node Reward System & Creators Hub:**  
-  Introduction of an incentive structure to reward node runners, along with a dedicated hub for content creators to monetize and share their work.
+- **Blockchain Integration:**
+Planned support for integrating blockchain technology to further enhance decentralization, data integrity, and trust.
+-**Enhanced API Failover Mechanisms:**
+Implementation of  failover strategies and redundant API endpoints to ensure uninterrupted service, even in the event of primary endpoint issues.
+-**Performance Optimizations:**
+Ongoing improvements to boost file processing speeds, reduce latency, and scale the network efficiently as data volumes and user demand grow.
+-**Collaborative Chat & Real-Time Collaboration:**
+Advanced real-time chat features for enhanced communication between node operators and users, including integrated tools for collaborative file editing (document, spreadsheet, and presentation editing), in-line commenting, and version control.
+-**Integrated Collaborative Document Editors:**
+Built‑in document, spreadsheet, and presentation editors that allow multiple users to edit, annotate, and track changes simultaneously, creating a seamless work environment.
+-**Marketplace & Plugin Ecosystem:**
+Development of a decentralized marketplace to buy, sell, and trade storage capacity and related services. In parallel, launch a plugin ecosystem with robust APIs and SDKs so developers can create and integrate third‑party tools—ranging from creative applications to additional productivity features.
+-**Creators Hub:**
+Introduction of a dedicated Creators Hub featuring digital asset management, monetization tools (including smart contract-based licensing and rights management), and tools for organizing and sharing creative content.
+-**Enhanced File & Media Editing Tools:**
+Beyond basic document editing, include native image, audio, and video editing capabilities to empower creators to make quick edits without leaving the platform.
+-**Mobile and Desktop Applications:**
+Native apps for both mobile and desktop platforms to ensure full editing, collaboration, and file management capabilities are available on the go.
+-**Advanced Version Control and File History:**
+Implement comprehensive version tracking, allowing users to view, compare, and restore previous versions of their files seamlessly.
