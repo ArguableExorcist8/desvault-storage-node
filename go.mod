@@ -1,4 +1,4 @@
-module DesVault/storage-node
+module github.com/ArguableExorcist8/desvault-storage-node
 
 go 1.22.7
 

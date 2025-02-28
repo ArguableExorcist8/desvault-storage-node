@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"DesVault/storage-node/storage"
+	"github.com/ArguableExorcist8/desvault-storage-node/storage"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"

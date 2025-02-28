@@ -1,6 +1,6 @@
 package main
 
-import "DesVault/storage-node/cli"
+import "github.com/ArguableExorcist8/desvault-storage-node/cli"
 
 func main() {
 	cli.Execute()

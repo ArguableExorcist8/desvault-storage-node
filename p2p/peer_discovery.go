@@ -1,4 +1,4 @@
-package peer_discovery
+package p2p
 
 import (
 	"context"
@@ -10,9 +10,10 @@ import (
 	libp2p "github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
-	"github.com/libp2p/go-libp2p/p2p/discovery"
+	"github.com/libp2p/go-libp2p/core/discovery" // Updated import path
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 )
+
 
 const (
 	discoveryServiceTag = "desvault-discovery"

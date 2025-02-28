@@ -7,7 +7,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"DesVault/storage-node/storage" 
+	"github.com/ArguableExorcist8/desvault-storage-node/storage" 
 )
 
 var DB *gorm.DB
