@@ -8,12 +8,11 @@ import (
 	"time"
 
 	libp2p "github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/discovery" // Updated: using core/discovery
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
-	"github.com/libp2p/go-libp2p/core/discovery" // Updated import path
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 )
-
 
 const (
 	discoveryServiceTag = "desvault-discovery"
@@ -21,14 +20,14 @@ const (
 	discoveryMessage    = "DesVaultPeerDiscovery"
 )
 
-// discoveryNotifee implements the mdns.Notifee interface.
+// discoveryNotifee implements mdns.Notifee interface.
 type discoveryNotifee struct {
 	h host.Host
 }
 
 func (n *discoveryNotifee) HandlePeerFound(pi discovery.DiscoveryPeer) {
 	fmt.Printf("[+] Discovered peer: %s\n", pi.ID)
-	// Attempt to connect to the discovered peer
+	// Attempt to connect to the discovered peer.
 	if err := n.h.Connect(context.Background(), pi); err != nil {
 		log.Printf("[!] Error connecting to peer %s: %v", pi.ID, err)
 	} else {
@@ -37,7 +36,7 @@ func (n *discoveryNotifee) HandlePeerFound(pi discovery.DiscoveryPeer) {
 }
 
 // StartLibp2pDiscovery initializes a libp2p host, sets up DHT and mDNS discovery,
-// and waits up to 30 seconds for peers. If no peers are found, this node becomes the seed.
+// and waits up to 30 seconds for peers. If no peers are found, the node becomes the seed.
 func StartLibp2pDiscovery() (host.Host, *dht.IpfsDHT, error) {
 	ctx := context.Background()
 
@@ -48,7 +47,7 @@ func StartLibp2pDiscovery() (host.Host, *dht.IpfsDHT, error) {
 	}
 	fmt.Printf("[*] Storage Node started with Peer ID: %s\n", h.ID())
 
-	// Set up DHT.
+	// Set up the DHT.
 	kademliaDHT, err := dht.New(ctx, h)
 	if err != nil {
 		return nil, nil, err
@@ -77,7 +76,7 @@ func StartLibp2pDiscovery() (host.Host, *dht.IpfsDHT, error) {
 		for {
 			select {
 			case <-ticker.C:
-				// Check if there are more peers than just this node.
+				// h.Peerstore().Peers() includes self; expect more than one for a discovered peer.
 				if len(h.Peerstore().Peers()) > 1 {
 					peerFound <- true
 					return
@@ -96,7 +95,7 @@ func StartLibp2pDiscovery() (host.Host, *dht.IpfsDHT, error) {
 	return h, kademliaDHT, nil
 }
 
-// --- UDP-based Peer Discovery Functions ---
+// --- UDP-based Discovery Functions ---
 
 // BroadcastDiscovery sends a UDP broadcast message to announce this node's presence.
 func BroadcastDiscovery() error {
@@ -117,7 +116,7 @@ func BroadcastDiscovery() error {
 	return nil
 }
 
-// ListenForPeers listens on UDP for incoming discovery messages for the specified timeout duration.
+// ListenForPeers listens on UDP for incoming discovery messages for the given timeout.
 func ListenForPeers(timeout time.Duration) ([]string, error) {
 	addr := net.UDPAddr{
 		Port: broadcastPort,
@@ -135,8 +134,7 @@ func ListenForPeers(timeout time.Duration) ([]string, error) {
 	for {
 		n, remoteAddr, err := conn.ReadFromUDP(buffer)
 		if err != nil {
-			// Break out on timeout or error.
-			break
+			break // Timeout or other error.
 		}
 		msg := string(buffer[:n])
 		if msg == discoveryMessage {
@@ -146,13 +144,11 @@ func ListenForPeers(timeout time.Duration) ([]string, error) {
 	return peers, nil
 }
 
-// DiscoverPeers performs peer discovery over UDP by broadcasting a message and then listening for responses.
+// DiscoverPeers performs peer discovery over UDP by broadcasting and then listening for responses.
 func DiscoverPeers(timeout time.Duration) ([]string, error) {
-	// Broadcast the discovery message.
 	if err := BroadcastDiscovery(); err != nil {
 		return nil, err
 	}
-	// Brief pause to allow responses.
 	time.Sleep(1 * time.Second)
 	peers, err := ListenForPeers(timeout)
 	if err != nil {
