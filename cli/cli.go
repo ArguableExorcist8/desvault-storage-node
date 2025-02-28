@@ -16,12 +16,14 @@ import (
 	"sync"
 	"time"
 
+	"DesVault/storage-node/auth"
 	"DesVault/storage-node/encryption"
 	"DesVault/storage-node/network"
 	"DesVault/storage-node/rewards"
 	"DesVault/storage-node/setup"
 	"DesVault/storage-node/storage"
 	"DesVault/storage-node/utils"
+	"DesVault/storage-node/p2p/peer_discovery" 
 
 	"github.com/gin-gonic/gin"
 	"github.com/quic-go/quic-go"
@@ -34,18 +36,69 @@ import (
 )
 
 // ========================
-// Configuration Constants
+// Node Discovery & Startup
 // ========================
 
-const (
-	ModerateUploadSpeed   = "5–10 Mbps"  // Informational: moderate upload speed.
-	ModerateDownloadSpeed = "10–25 Mbps" // Informational: moderate download speed.
-	MaxFileSizeBytes      = 524288000    // 500 MB in bytes.
-)
+func StartNode() error {
+	// Create a cancellable context.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Load production configuration.
+	config, err := setup.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %v", err)
+	}
+	log.Println("[INFO] Production configuration loaded.")
+
+	// Initialize wallet authentication (production credentials).
+	if err := auth.InitializeWallet(config.WalletConfig); err != nil {
+		return fmt.Errorf("wallet initialization failed: %v", err)
+	}
+	log.Println("[INFO] Wallet authentication initialized.")
+
+	// Start peer discovery using the updated libp2p-based discovery with timeout.
+	h, dht, err := peer_discovery.StartLibp2pDiscovery()
+	if err != nil {
+		return fmt.Errorf("failed to start peer discovery: %v", err)
+	}
+	log.Printf("[INFO] Node started with Peer ID: %s", h.ID().Pretty())
+	for _, addr := range h.Addrs() {
+		log.Printf("[INFO] Listening on: %s/p2p/%s", addr, h.ID().Pretty())
+	}
+
+	// Register the node with the network registry (e.g., update a bootstrap list, central directory, etc.)
+	if err := network.RegisterNode(h, config); err != nil {
+		return fmt.Errorf("failed to register node on the network: %v", err)
+	}
+	log.Println("[INFO] Node registered on the network.")
+
+	// Start a background routine to keep the DHT active and to close it gracefully on shutdown.
+	go func() {
+		<-ctx.Done()
+		dht.Close()
+		log.Println("[INFO] DHT closed due to context cancellation.")
+	}()
+
+	// Optionally launch additional background monitoring routines.
+	go network.MonitorNetwork(h)
+
+	log.Println("[INFO] Node startup completed successfully. The node is now fully operational.")
+
+	// Keep the node running indefinitely.
+	// In a real production scenario, you might block on a signal or an error channel.
+	select {}
+}
 
 // ========================
 // Shared Helpers & Global Variables
 // ========================
+
+const (
+	ModerateUploadSpeed   = "5–10 Mbps"
+	ModerateDownloadSpeed = "10–25 Mbps"
+	MaxFileSizeBytes      = 524288000 // 500 MB in bytes.
+)
 
 // getEnv returns the value of an environment variable or a default.
 func getEnv(key, defaultValue string) string {
@@ -57,12 +110,10 @@ func getEnv(key, defaultValue string) string {
 
 var port = getEnv("PORT", "8080")
 
-// generateAuthToken simulates generating an authentication token.
 func generateAuthToken() string {
 	return fmt.Sprintf("%x", time.Now().UnixNano())
 }
 
-// generateCID returns a random 16-digit numeric string.
 func generateCID() string {
 	digits := make([]byte, 16)
 	for i := 0; i < 16; i++ {
@@ -71,7 +122,6 @@ func generateCID() string {
 	return string(digits)
 }
 
-// formatFileSize converts a file size (in bytes) to a human‑readable string.
 func formatFileSize(size int64) string {
 	const (
 		KB = 1024
@@ -93,7 +143,6 @@ func formatFileSize(size int64) string {
 // Database Models & Converters
 // ========================
 
-// FileMetadataModel is the DB model for file metadata.
 type FileMetadataModel struct {
 	CID       string         `gorm:"column:cid;primaryKey;not null;size:255" json:"cid"`
 	FileName  string         `gorm:"size:255" json:"fileName"`
@@ -103,7 +152,6 @@ type FileMetadataModel struct {
 	CreatedAt time.Time      `json:"createdAt"`
 }
 
-// FileMetadataResponse is used for API responses.
 type FileMetadataResponse struct {
 	CID       string          `json:"cid"`
 	FileName  string          `json:"fileName"`
@@ -155,7 +203,6 @@ func initDB() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	// For development, drop the table if it exists.
 	if db.Migrator().HasTable(&FileMetadataModel{}) {
 		if err := db.Migrator().DropTable(&FileMetadataModel{}); err != nil {
 			log.Fatalf("failed to drop table: %v", err)
@@ -173,13 +220,11 @@ func initDB() {
 var visitors = make(map[string]*rate.Limiter)
 var mtx sync.Mutex
 
-// getVisitor returns the rate limiter for the given IP, creating one if necessary.
 func getVisitor(ip string) *rate.Limiter {
 	mtx.Lock()
 	defer mtx.Unlock()
 	limiter, exists := visitors[ip]
 	if !exists {
-		// 1 request per second with a burst of 5.
 		limiter = rate.NewLimiter(1, 5)
 		visitors[ip] = limiter
 	}
@@ -280,7 +325,6 @@ func startIPFSDaemon() error {
 		}
 		return fmt.Errorf("failed to start IPFS daemon: %w", err)
 	}
-	// Wait up to 20 seconds for IPFS to become available.
 	for i := 0; i < 10; i++ {
 		time.Sleep(2 * time.Second)
 		if isIPFSRunning() {
@@ -312,6 +356,7 @@ func startNode(ctx context.Context) {
 		log.Println("This node is running as a regular node. Attempting to discover seed nodes...")
 	}
 
+	// Initialize networking (which now includes updated discovery)
 	ads, err := network.InitializeNode(ctx)
 	if err != nil {
 		log.Fatalf("Failed to initialize networking: %v", err)
@@ -374,104 +419,61 @@ func startAPIServer() {
 
 	authorized := router.Group("/", authMiddleware)
 
-	// POST /upload: Upload a file.
 	authorized.POST("/upload", func(c *gin.Context) {
 		file, err := c.FormFile("file")
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"code":    http.StatusBadRequest,
-				"message": fmt.Sprintf("File not provided: %v", err),
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"code": http.StatusBadRequest, "message": fmt.Sprintf("File not provided: %v", err)})
 			return
 		}
-
-		// Check file size (must not exceed 500 MB)
 		if file.Size > MaxFileSizeBytes {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"code":    http.StatusBadRequest,
-				"message": "File exceeds maximum allowed size (500 MB)",
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"code": http.StatusBadRequest, "message": "File exceeds maximum allowed size (500 MB)"})
 			return
 		}
-
 		note := c.PostForm("note")
 		if note == "" {
 			note = "No note available"
 		}
-
 		tempPath := filepath.Join(os.TempDir(), file.Filename)
 		if err := c.SaveUploadedFile(file, tempPath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code":    http.StatusInternalServerError,
-				"message": fmt.Sprintf("Could not save file to %s: %v", tempPath, err),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Could not save file to %s: %v", tempPath, err)})
 			return
 		}
-
 		metadata, err := storage.UploadFileWithMetadata(tempPath)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code":    http.StatusInternalServerError,
-				"message": fmt.Sprintf("Upload process failed: %v", err),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Upload process failed: %v", err)})
 			return
 		}
-
 		newCID := generateCID()
 		metadata.CID = newCID
 		log.Printf("Generated 16-digit CID for file %s: %s", file.Filename, newCID)
-
 		fileSizeStr := formatFileSize(file.Size)
-
 		model, err := fileMetadataToModel(metadata)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code":    http.StatusInternalServerError,
-				"message": fmt.Sprintf("Metadata conversion failed: %v", err),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Metadata conversion failed: %v", err)})
 			return
 		}
 		model.CID = newCID
 		model.Note = note
 		model.FileSize = fileSizeStr
 		model.CreatedAt = time.Now()
-
 		if err := db.Create(&model).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code":    http.StatusInternalServerError,
-				"message": fmt.Sprintf("Database error: %v", err),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Database error: %v", err)})
 			return
 		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"code":    http.StatusOK,
-			"message": "File uploaded successfully",
-			"data":    model,
-			"uploadSpeed":   ModerateUploadSpeed,
-			"downloadSpeed": ModerateDownloadSpeed,
-			"maxFileSize":   "500 MB",
-		})
+		c.JSON(http.StatusOK, gin.H{"code": http.StatusOK, "message": "File uploaded successfully", "data": model, "uploadSpeed": ModerateUploadSpeed, "downloadSpeed": ModerateDownloadSpeed, "maxFileSize": "500 MB"})
 	})
 
-	// GET /files: List uploaded files.
 	authorized.GET("/files", func(c *gin.Context) {
 		var models []FileMetadataModel
 		if err := db.Find(&models).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code":    http.StatusInternalServerError,
-				"message": fmt.Sprintf("Database error: %v", err),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Database error: %v", err)})
 			return
 		}
 		var responses []FileMetadataResponse
 		for _, model := range models {
 			resp, err := modelToResponse(model)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"code":    http.StatusInternalServerError,
-					"message": fmt.Sprintf("Conversion error: %v", err),
-				})
+				c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Conversion error: %v", err)})
 				return
 			}
 			responses = append(responses, resp)
@@ -479,30 +481,20 @@ func startAPIServer() {
 		c.JSON(http.StatusOK, gin.H{"files": responses})
 	})
 
-	// GET /download/:cid: Download a file using its CID.
 	authorized.GET("/download/:cid", func(c *gin.Context) {
 		cid := c.Param("cid")
 		var model FileMetadataModel
 		if err := db.First(&model, "cid = ?", cid).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{
-					"code":    http.StatusNotFound,
-					"message": "File metadata not found",
-				})
+				c.JSON(http.StatusNotFound, gin.H{"code": http.StatusNotFound, "message": "File metadata not found"})
 			} else {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"code":    http.StatusInternalServerError,
-					"message": fmt.Sprintf("Database error: %v", err),
-				})
+				c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Database error: %v", err)})
 			}
 			return
 		}
 		var shards []storage.Shard
 		if err := json.Unmarshal(model.Shards, &shards); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code":    http.StatusInternalServerError,
-				"message": fmt.Sprintf("Error parsing shards: %v", err),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Error parsing shards: %v", err)})
 			return
 		}
 		metadata := storage.FileMetadata{
@@ -512,13 +504,9 @@ func startAPIServer() {
 		}
 		outputPath := filepath.Join(os.TempDir(), model.FileName)
 		if err := storage.DownloadFile(metadata.Shards, outputPath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code":    http.StatusInternalServerError,
-				"message": fmt.Sprintf("Error reconstructing file: %v", err),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Error reconstructing file: %v", err)})
 			return
 		}
-		// Use FileAttachment to serve the file with its original filename.
 		c.FileAttachment(outputPath, model.FileName)
 	})
 
@@ -530,24 +518,21 @@ func startAPIServer() {
 }
 
 // ========================
-// Additional Helper Functions (Enhanced Service Health Check)
+// Additional Helper Functions (Service Health Check)
 // ========================
 
 func getNodeStatus() string {
-	// Check IPFS daemon status.
 	ipfsStatus := "DOWN"
 	if isIPFSRunning() {
 		ipfsStatus = "UP"
 	}
 
-	// Check network connectivity.
 	peers := network.GetConnectedPeers()
 	networkStatus := "LOW"
 	if len(peers) > 0 {
 		networkStatus = "GOOD"
 	}
 
-	// Check database connectivity.
 	dbStatus := "UNKNOWN"
 	if db != nil {
 		if sqlDB, err := db.DB(); err == nil {
@@ -563,7 +548,37 @@ func getNodeStatus() string {
 }
 
 // ========================
-// CLI Commands
+// CLI Banner & Status Functions
+// ========================
+
+func printCLIBanner() {
+	fmt.Println(`
+██████╗ ███████╗███████╗██╗   ██╗ █████╗ ██╗   ██╗██╗ ████████╗
+██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██║   ██║██║ ╚══██╔══╝
+██║  ██║█████╗  ███████╗██║   ██║███████║██║   ██║██║    ██║   
+██║  ██║██╔══╝  ╚════██║██║   ██║██╔══██║██║   ██║██║    ██║   
+██████╔╝███████╗███████║╚██████╔╝██║  ██║╚██████╔╝███████║   
+╚═════╝ ╚══════╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝
+`)
+	fmt.Println("\nDesVault CLI")
+}
+
+func printChatBanner() {
+	fmt.Println(`
+██████╗ ███████╗███████╗██╗   ██╗ █████╗ ██╗   ██╗██╗ ████████╗
+██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██║   ██║██║ ╚══██╔══╝
+██║  ██║█████╗  ███████╗██║   ██║███████║██║   ██║██║    ██║   
+██║  ██║██╔══╝  ╚════██║██║   ██║██╔══██║██║   ██║██║    ██║   
+██████╔╝███████╗███████║╚██████╔╝██║  ██║╚██████╔╝███████║   
+╚═════╝ ╚══════╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝
+`)
+	fmt.Println("\nDesVault CLI Chatroom")
+	fmt.Println("-------------------------")
+	fmt.Println("Type your message and press Enter to send. Press Ctrl+C to exit the chatroom.")
+}
+
+// ========================
+// CLI Command Definitions
 // ========================
 
 var rootCmd = &cobra.Command{
@@ -587,15 +602,14 @@ var storageCmd = &cobra.Command{
 		}
 	},
 }
+
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Start the Storage Node",
 	Run: func(cmd *cobra.Command, args []string) {
 		printCLIBanner()
-		// Run first-time setup routines.
 		setup.FirstTimeSetup()
 
-		// Ensure the .desvault directory exists.
 		home, err := os.UserHomeDir()
 		if err != nil {
 			fmt.Println("[!] Could not determine home directory:", err)
@@ -606,7 +620,6 @@ var runCmd = &cobra.Command{
 			fmt.Println("[!] Failed to create directory:", err)
 			return
 		}
-		// Write the current PID to the node.pid file.
 		pidFile := filepath.Join(desvaultDir, "node.pid")
 		pid := os.Getpid()
 		f, err := os.OpenFile(pidFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -619,20 +632,18 @@ var runCmd = &cobra.Command{
 			fmt.Println("[!] Failed to write PID:", err)
 		}
 
-		// Start the IPFS daemon automatically.
 		if err := startIPFSDaemon(); err != nil {
 			log.Fatalf("Failed to start IPFS daemon: %v", err)
 		}
 
-		// Initialize the database and storage.
 		initDB()
 		storage.InitializeStorage()
 
-		// Start the Node (network, peer discovery, etc.)
+		// Start the node including network initialization & discovery.
 		ctx := context.Background()
 		startNode(ctx)
 
-		// Start the API server in the same process on its own port.
+		// Start the API server.
 		startAPIServer()
 	},
 }
