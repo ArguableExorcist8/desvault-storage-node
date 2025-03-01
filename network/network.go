@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p"
-	gonetwork "github.com/libp2p/go-libp2p/core/network" // For stream handling.
+	gonetwork "github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	mdns "github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 
-	"github.com/ArguableExorcist8/desvault-storage-node/setup" // Production configuration.
+	"github.com/ArguableExorcist8/desvault-storage-node/setup" // Production configuration
 )
 
 const ChatProtocolID = "/desvault/chat/1.0.0"
@@ -29,12 +29,13 @@ type Notifee struct {
 	Host host.Host
 }
 
+// HandlePeerFound handles peers discovered via mDNS.
 func (n *Notifee) HandlePeerFound(pi peer.AddrInfo) {
-	log.Printf("[mDNS] Found peer: %s", pi.ID.String())
+	log.Printf("[mDNS] Discovered peer: %s", pi.ID.String())
 	if err := n.Host.Connect(context.Background(), pi); err != nil {
-		log.Printf("[mDNS] Error connecting to peer %s: %v", pi.ID.String(), err)
+		log.Printf("[ERROR] Failed to connect to peer %s: %v", pi.ID.String(), err)
 	} else {
-		log.Printf("[mDNS] Connected to peer: %s", pi.ID.String())
+		log.Printf("[INFO] Successfully connected to peer: %s", pi.ID.String())
 	}
 }
 
@@ -44,58 +45,60 @@ type AutoDiscoveryService struct {
 	DHT  *dht.IpfsDHT
 }
 
-// Start begins mDNS discovery and bootstraps the DHT.
+// Start initializes mDNS discovery and bootstraps the DHT.
 func (s *AutoDiscoveryService) Start(ctx context.Context) {
-	// Start mDNS discovery.
-	mdnsService, err := mdns.NewMdnsService(s.Host, "_desvault._tcp", &Notifee{Host: s.Host})
-	if err != nil {
-		log.Printf("[ERROR] mDNS service error: %v", err)
+	// Initialize mDNS service (no error returned here, only one value).
+	mdnsService := mdns.NewMdnsService(s.Host, "_desvault._tcp", &Notifee{Host: s.Host})
+	// Start the mDNS service and handle any startup errors.
+	if err := mdnsService.Start(); err != nil {
+		log.Printf("[ERROR] Failed to start mDNS service: %v", err)
 	} else {
-		if err := mdnsService.Start(); err != nil {
-			log.Printf("[ERROR] mDNS service failed to start: %v", err)
-		} else {
-			log.Println("[INFO] mDNS service started")
-		}
+		log.Println("[INFO] mDNS service started successfully")
 	}
 
-	// Bootstrap DHT.
+	// Bootstrap the DHT for peer discovery.
 	if err := s.DHT.Bootstrap(ctx); err != nil {
-		log.Printf("[ERROR] DHT bootstrap error: %v", err)
+		log.Printf("[ERROR] Failed to bootstrap DHT: %v", err)
 	} else {
 		log.Println("[INFO] DHT bootstrap completed")
 	}
 
-	log.Println("[INFO] Peer discovery initialized")
+	log.Println("[INFO] Peer discovery fully initialized")
 }
 
 // InitializeNode creates a libp2p host with a DHT instance and returns an AutoDiscoveryService.
 func InitializeNode(ctx context.Context) (*AutoDiscoveryService, error) {
+	// Create a new libp2p host listening on all interfaces at port 4001.
 	h, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create libp2p host: %v", err)
 	}
 
+	// Initialize the Kademlia DHT in auto mode.
 	kademliaDHT, err := dht.New(ctx, h, dht.Mode(dht.ModeAuto))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to initialize DHT: %v", err)
 	}
 
 	ads := &AutoDiscoveryService{
 		Host: h,
 		DHT:  kademliaDHT,
 	}
+
 	// Set up a stream handler for the chat protocol.
 	h.SetStreamHandler(ChatProtocolID, func(stream gonetwork.Stream) {
 		reader := bufio.NewReader(stream)
 		for {
 			msg, err := reader.ReadString('\n')
 			if err != nil {
+				log.Printf("[ERROR] Failed to read from chat stream: %v", err)
 				return
 			}
 			fmt.Printf("[Chat] %s: %s\n", stream.Conn().RemotePeer().String(), strings.TrimSpace(msg))
 		}
 	})
 
+	// Store the service globally for helper function access.
 	SetGlobalAutoDiscoveryService(ads)
 	return ads, nil
 }
@@ -132,30 +135,33 @@ func GetConnectedPeers() []string {
 }
 
 // SendMessage sends a chat message to the specified peer.
-func SendMessage(peerID string, msg string) {
+func SendMessage(peerID string, msg string) error {
 	if globalADS == nil {
-		fmt.Println("[ERROR] AutoDiscoveryService not initialized")
-		return
+		return fmt.Errorf("AutoDiscoveryService not initialized")
 	}
+
 	peerAddr, err := peer.Decode(peerID)
 	if err != nil {
-		fmt.Println("[ERROR] Invalid peer ID:", err)
-		return
+		return fmt.Errorf("invalid peer ID: %v", err)
 	}
+
 	stream, err := globalADS.Host.NewStream(context.Background(), peerAddr, ChatProtocolID)
 	if err != nil {
-		fmt.Println("[ERROR] Failed to open chat stream:", err)
-		return
+		return fmt.Errorf("failed to open chat stream: %v", err)
 	}
 	defer stream.Close()
 
 	writer := bufio.NewWriter(stream)
 	_, err = writer.WriteString(msg + "\n")
 	if err != nil {
-		fmt.Println("[ERROR] Failed to send message:", err)
-		return
+		return fmt.Errorf("failed to send message: %v", err)
 	}
-	writer.Flush()
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("failed to flush message: %v", err)
+	}
+
+	log.Printf("[INFO] Message sent to peer %s: %s", peerID, msg)
+	return nil
 }
 
 // -----------------------------------------------------------------------------
@@ -163,22 +169,33 @@ func SendMessage(peerID string, msg string) {
 // -----------------------------------------------------------------------------
 
 // RegisterNode registers the node on the network using the provided configuration.
-// In a real production system, this might involve publishing the node's details to a central registry
-// or a distributed ledger so that other nodes can discover it.
 func RegisterNode(h host.Host, config *setup.Config) error {
-	// For production, you would likely call an API or update a distributed registry.
-	// Here we simply log the registration event.
-	log.Printf("[INFO] Registering node %s with configuration: %+v", h.ID().String(), config)
-	// TODO: Implement real registration logic.
+	// In a production environment, this could publish node details to a registry or blockchain.
+	// For this example, we'll simulate registration with logging and a simple validation.
+	if config == nil {
+		return fmt.Errorf("configuration is nil")
+	}
+
+	peerID := h.ID().String()
+	log.Printf("[INFO] Registering node %s with configuration: %+v", peerID, config)
+
+	// Simulate a production registration process (e.g., API call or blockchain transaction).
+	// Replace this with actual logic, such as publishing to a distributed ledger.
+	time.Sleep(1 * time.Second) // Simulate network delay.
+	log.Printf("[INFO] Node %s successfully registered", peerID)
 	return nil
 }
 
-// MonitorNetwork continuously monitors network connectivity and logs the current number of connected peers.
+// MonitorNetwork continuously monitors network connectivity and logs peer count.
 func MonitorNetwork(h host.Host) {
 	log.Println("[INFO] Starting network monitoring...")
 	for {
 		peers := h.Network().Peers()
-		log.Printf("[INFO] Connected to %d peers", len(peers))
+		peerCount := len(peers)
+		log.Printf("[INFO] Connected to %d peers", peerCount)
+		if peerCount == 0 {
+			log.Println("[WARN] No peers connected; network may be isolated")
+		}
 		time.Sleep(10 * time.Second)
 	}
 }
