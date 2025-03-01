@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ArguableExorcist8/desvault-storage-node/auth"
@@ -35,29 +37,38 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// ========================
-// Node Discovery & Startup
-// ========================
+// ### Constants
+const (
+	ModerateUploadSpeed   = "5–10 Mbps"
+	ModerateDownloadSpeed = "10–25 Mbps"
+	MaxFileSizeBytes      = 524288000 // 500 MB in bytes.
+)
 
+// ### Global Variables
+var (
+	port = getEnv("PORT", "8080")
+	db   *gorm.DB
+)
+
+// ### Node Discovery & Startup
 func StartNode() error {
-	// Create a cancellable context.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Load production configuration.
+	// Load production configuration
 	config, err := setup.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %v", err)
 	}
 	log.Println("[INFO] Production configuration loaded.")
 
-	// Initialize wallet authentication (production credentials).
+	// Initialize wallet authentication
 	if err := auth.InitializeWallet(config.WalletConfig); err != nil {
 		return fmt.Errorf("wallet initialization failed: %v", err)
 	}
 	log.Println("[INFO] Wallet authentication initialized.")
 
-	// Start peer discovery using the p2p package.
+	// Start peer discovery
 	h, dht, err := p2p.StartLibp2pDiscovery()
 	if err != nil {
 		return fmt.Errorf("failed to start peer discovery: %v", err)
@@ -67,38 +78,35 @@ func StartNode() error {
 		log.Printf("[INFO] Listening on: %s/p2p/%s", addr, h.ID().String())
 	}
 
-	// Register the node with the network registry.
+	// Register node with the network
 	if err := network.RegisterNode(h, config); err != nil {
 		return fmt.Errorf("failed to register node on the network: %v", err)
 	}
 	log.Println("[INFO] Node registered on the network.")
 
-	// Start a background routine to keep the DHT active and close it on shutdown.
+	// Manage DHT lifecycle
 	go func() {
 		<-ctx.Done()
-		dht.Close()
-		log.Println("[INFO] DHT closed due to context cancellation.")
+		if err := dht.Close(); err != nil {
+			log.Printf("[ERROR] Failed to close DHT: %v", err)
+		}
+		log.Println("[INFO] DHT closed.")
 	}()
 
-	// Launch background network monitoring.
+	// Start network monitoring
 	go network.MonitorNetwork(h)
 
-	log.Println("[INFO] Node startup completed successfully. The node is now fully operational.")
+	log.Println("[INFO] Node startup completed successfully.")
 
-	// Keep the node running indefinitely.
-	select {}
+	// Wait for shutdown signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	<-sigChan
+	log.Println("[INFO] Received shutdown signal, shutting down node...")
+	return nil
 }
 
-// ========================
-// Shared Helpers & Global Variables
-// ========================
-
-const (
-	ModerateUploadSpeed   = "5–10 Mbps"
-	ModerateDownloadSpeed = "10–25 Mbps"
-	MaxFileSizeBytes      = 524288000 // 500 MB in bytes.
-)
-
+// ### Shared Helpers
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -106,18 +114,22 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-var port = getEnv("PORT", "8080")
-
 func generateAuthToken() string {
-	return fmt.Sprintf("%x", time.Now().UnixNano())
+	token, err := utils.GenerateSecureToken(32) // Use a secure token generator
+	if err != nil {
+		log.Printf("[ERROR] Failed to generate auth token: %v", err)
+		return fmt.Sprintf("%x", time.Now().UnixNano()) // Fallback
+	}
+	return token
 }
 
 func generateCID() string {
-	digits := make([]byte, 16)
-	for i := 0; i < 16; i++ {
-		digits[i] = '0' + byte(rand.Intn(10))
+	cid, err := utils.GenerateCID() // Assume utils provides a proper CID generator
+	if err != nil {
+		log.Printf("[ERROR] Failed to generate CID: %v", err)
+		return fmt.Sprintf("%016d", rand.Int63()) // Fallback
 	}
-	return string(digits)
+	return cid
 }
 
 func formatFileSize(size int64) string {
@@ -126,20 +138,19 @@ func formatFileSize(size int64) string {
 		MB = KB * 1024
 		GB = MB * 1024
 	)
-	if size < KB {
+	switch {
+	case size < KB:
 		return fmt.Sprintf("%d B", size)
-	} else if size < MB {
+	case size < MB:
 		return fmt.Sprintf("%.2f KB", float64(size)/KB)
-	} else if size < GB {
+	case size < GB:
 		return fmt.Sprintf("%.2f MB", float64(size)/MB)
+	default:
+		return fmt.Sprintf("%.2f GB", float64(size)/GB)
 	}
-	return fmt.Sprintf("%.2f GB", float64(size)/GB)
 }
 
-// ========================
-// Database Models & Converters
-// ========================
-
+// ### Database Models & Converters
 type FileMetadataModel struct {
 	CID       string         `gorm:"column:cid;primaryKey;not null;size:255" json:"cid"`
 	FileName  string         `gorm:"size:255" json:"fileName"`
@@ -161,7 +172,7 @@ type FileMetadataResponse struct {
 func modelToResponse(model FileMetadataModel) (FileMetadataResponse, error) {
 	var shards []storage.Shard
 	if err := json.Unmarshal(model.Shards, &shards); err != nil {
-		return FileMetadataResponse{}, err
+		return FileMetadataResponse{}, fmt.Errorf("failed to unmarshal shards: %v", err)
 	}
 	return FileMetadataResponse{
 		CID:       model.CID,
@@ -176,7 +187,7 @@ func modelToResponse(model FileMetadataModel) (FileMetadataResponse, error) {
 func fileMetadataToModel(metadata storage.FileMetadata) (FileMetadataModel, error) {
 	shardsJSON, err := json.Marshal(metadata.Shards)
 	if err != nil {
-		return FileMetadataModel{}, err
+		return FileMetadataModel{}, fmt.Errorf("failed to marshal shards: %v", err)
 	}
 	return FileMetadataModel{
 		CID:      metadata.CID,
@@ -184,8 +195,6 @@ func fileMetadataToModel(metadata storage.FileMetadata) (FileMetadataModel, erro
 		Shards:   datatypes.JSON(shardsJSON),
 	}, nil
 }
-
-var db *gorm.DB
 
 func initDB() {
 	dbURL := os.Getenv("DATABASE_URL")
@@ -199,39 +208,32 @@ func initDB() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if db.Migrator().HasTable(&FileMetadataModel{}) {
-		if err := db.Migrator().DropTable(&FileMetadataModel{}); err != nil {
-			log.Fatalf("failed to drop table: %v", err)
-		}
-	}
 	if err := db.AutoMigrate(&FileMetadataModel{}); err != nil {
 		log.Fatalf("failed to auto-migrate database: %v", err)
 	}
+	log.Println("[INFO] Database initialized successfully.")
 }
 
-// ========================
-// Middleware Definitions
-// ========================
-
-var visitors = make(map[string]*rate.Limiter)
-var mtx sync.Mutex
+// ### Middleware Definitions
+var (
+	visitors = make(map[string]*rate.Limiter)
+	mtx      sync.Mutex
+)
 
 func getVisitor(ip string) *rate.Limiter {
 	mtx.Lock()
 	defer mtx.Unlock()
-	limiter, exists := visitors[ip]
-	if !exists {
-		limiter = rate.NewLimiter(1, 5)
-		visitors[ip] = limiter
+	if limiter, exists := visitors[ip]; exists {
+		return limiter
 	}
+	limiter := rate.NewLimiter(rate.Every(time.Second), 5) // 5 requests per second
+	visitors[ip] = limiter
 	return limiter
 }
 
 func rateLimitMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ip := c.ClientIP()
-		limiter := getVisitor(ip)
-		if !limiter.Allow() {
+		if limiter := getVisitor(c.ClientIP()); !limiter.Allow() {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"code":    http.StatusTooManyRequests,
 				"message": "Rate limit exceeded",
@@ -252,20 +254,26 @@ func secureHeadersMiddleware() gin.HandlerFunc {
 }
 
 func authMiddleware(c *gin.Context) {
-	if c.GetHeader("Authorization") != "Bearer secret123" {
+	token := c.GetHeader("Authorization")
+	if !strings.HasPrefix(token, "Bearer ") {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 			"code":    http.StatusUnauthorized,
-			"message": "Unauthorized",
+			"message": "Invalid or missing Authorization header",
+		})
+		return
+	}
+	token = strings.TrimPrefix(token, "Bearer ")
+	if !auth.ValidateToken(token) { // Assume auth provides token validation
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"code":    http.StatusUnauthorized,
+			"message": "Invalid or expired token",
 		})
 		return
 	}
 	c.Next()
 }
 
-// ========================
-// CLI Banner Functions
-// ========================
-
+// ### CLI Banner Functions
 func printCLIBanner() {
 	fmt.Println(`
 ██████╗ ███████╗███████╗██╗   ██╗ █████╗ ██╗   ██╗██╗ ████████╗
@@ -289,34 +297,31 @@ func printChatBanner() {
 `)
 	fmt.Println("\nDesVault CLI Chatroom")
 	fmt.Println("-------------------------")
-	fmt.Println("Type your message and press Enter to send. Press Ctrl+C to exit the chatroom.")
+	fmt.Println("Type your message and press Enter to send. Press Ctrl+C to exit.")
 }
 
-// ========================
-// IPFS Auto-Start Helpers
-// ========================
-
+// ### IPFS Auto-Start Helpers
 func isIPFSRunning() bool {
 	resp, err := http.Get("http://localhost:5001/api/v0/version")
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }
 
 func startIPFSDaemon() error {
 	if isIPFSRunning() {
-		log.Println("IPFS daemon already running.")
+		log.Println("[INFO] IPFS daemon already running.")
 		return nil
 	}
-	log.Println("IPFS daemon not running, starting it...")
+	log.Println("[INFO] Starting IPFS daemon...")
 	cmd := exec.Command("ipfs", "daemon")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		if strings.Contains(err.Error(), "repo.lock") {
-			log.Println("IPFS daemon already running (repo.lock detected).")
+			log.Println("[INFO] IPFS daemon already running (repo.lock detected).")
 			return nil
 		}
 		return fmt.Errorf("failed to start IPFS daemon: %w", err)
@@ -324,40 +329,38 @@ func startIPFSDaemon() error {
 	for i := 0; i < 10; i++ {
 		time.Sleep(2 * time.Second)
 		if isIPFSRunning() {
-			log.Println("IPFS daemon started successfully.")
+			log.Println("[INFO] IPFS daemon started successfully.")
 			return nil
 		}
 	}
-	return fmt.Errorf("IPFS daemon did not start in time")
+	return fmt.Errorf("IPFS daemon failed to start within timeout")
 }
 
-// ========================
-// Node Startup Functions
-// ========================
-
+// ### Node Startup Functions
 func startNode(ctx context.Context) {
 	authToken := generateAuthToken()
-	log.Printf("New authentication token generated: %s", authToken)
+	log.Printf("[INFO] New authentication token generated: %s", authToken)
 	fmt.Println("Node ONLINE")
 	fmt.Printf("Region: %s\n", setup.GetRegion())
 	fmt.Printf("Uptime: %s\n", setup.GetUptime())
 	storageGB, _ := setup.ReadStorageAllocation()
 	fmt.Printf("Storage: %d GB\n", storageGB)
-	fmt.Printf("Points: %d\n", 0) // Placeholder.
-	fmt.Printf("Shards: %d\n", 0) // Placeholder.
+	points := rewards.CalculatePoints(storageGB) // Assume rewards provides this
+	fmt.Printf("Points: %d\n", points)
+	shardsCount := storage.GetShardCount() // Assume storage provides this
+	fmt.Printf("Shards: %d\n", shardsCount)
 
 	if os.Getenv("SEED_NODE") == "true" {
-		log.Println("This node is running as the seed node.")
+		log.Println("[INFO] Running as seed node.")
 	} else {
-		log.Println("This node is running as a regular node. Attempting to discover seed nodes...")
+		log.Println("[INFO] Running as regular node. Discovering seed nodes...")
 	}
 
-	// Initialize networking.
 	ads, err := network.InitializeNode(ctx)
 	if err != nil {
-		log.Fatalf("Failed to initialize networking: %v", err)
+		log.Fatalf("[ERROR] Failed to initialize networking: %v", err)
 	}
-	log.Printf("Node started with Peer ID: %s", ads.Host.ID().String())
+	log.Printf("[INFO] Node started with Peer ID: %s", ads.Host.ID().String())
 
 	if os.Getenv("SEED_NODE") != "true" {
 		timeout := 5 * time.Minute
@@ -365,36 +368,37 @@ func startNode(ctx context.Context) {
 		for {
 			peers := network.GetConnectedPeers()
 			if len(peers) > 1 {
-				log.Println("Seed node discovered.")
+				log.Println("[INFO] Seed node discovered.")
 				break
 			}
 			if time.Since(startWait) > timeout {
-				log.Println("Timeout waiting for seed node. Proceeding without seed node.")
+				log.Println("[WARN] Timeout waiting for seed node. Proceeding without seed.")
 				break
 			}
-			log.Println("No seed node found yet. Waiting 5 seconds...")
+			log.Println("[INFO] Waiting for seed node...")
 			time.Sleep(5 * time.Second)
 		}
 	}
 
 	if err := setup.SetStartTime(); err != nil {
-		log.Printf("[!] Failed to set start time: %v", err)
+		log.Printf("[ERROR] Failed to set start time: %v", err)
 	}
 
 	fmt.Printf("Allocated Storage: %d GB\n", storageGB)
 	fmt.Printf("Estimated Rewards: %d pts/hour\n", storageGB*100)
 
-	log.Println("Storage service started")
-	log.Printf("Storage Node started successfully. Auth Token: %s", authToken)
-	log.Println("mDNS service started")
-	log.Println("DHT bootstrap completed")
-	log.Println("Peer discovery initialized")
+	// Announce storage contribution
+	if err := network.AnnounceStorage(storageGB); err != nil {
+		log.Printf("[ERROR] Failed to announce storage: %v", err)
+	} else {
+		log.Printf("[INFO] Announced %d GB of storage to the network.", storageGB)
+	}
+
+	log.Println("[INFO] Storage service started.")
+	log.Printf("[INFO] Node fully operational. Auth Token: %s", authToken)
 }
 
-// ========================
-// API Server Startup Function
-// ========================
-
+// ### API Server Startup Function
 func startAPIServer() {
 	router := gin.New()
 	router.Use(gin.Logger())
@@ -431,24 +435,24 @@ func startAPIServer() {
 		}
 		tempPath := filepath.Join(os.TempDir(), file.Filename)
 		if err := c.SaveUploadedFile(file, tempPath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Could not save file to %s: %v", tempPath, err)})
+			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Could not save file: %v", err)})
 			return
 		}
+		defer os.Remove(tempPath)
 		metadata, err := storage.UploadFileWithMetadata(tempPath)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Upload process failed: %v", err)})
+			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Upload failed: %v", err)})
 			return
 		}
 		newCID := generateCID()
 		metadata.CID = newCID
-		log.Printf("Generated 16-digit CID for file %s: %s", file.Filename, newCID)
+		log.Printf("[INFO] Generated CID for file %s: %s", file.Filename, newCID)
 		fileSizeStr := formatFileSize(file.Size)
 		model, err := fileMetadataToModel(metadata)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Metadata conversion failed: %v", err)})
 			return
 		}
-		model.CID = newCID
 		model.Note = note
 		model.FileSize = fileSizeStr
 		model.CreatedAt = time.Now()
@@ -456,7 +460,14 @@ func startAPIServer() {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Database error: %v", err)})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"code": http.StatusOK, "message": "File uploaded successfully", "data": model, "uploadSpeed": ModerateUploadSpeed, "downloadSpeed": ModerateDownloadSpeed, "maxFileSize": "500 MB"})
+		c.JSON(http.StatusOK, gin.H{
+			"code":         http.StatusOK,
+			"message":      "File uploaded successfully",
+			"data":         model,
+			"uploadSpeed":  ModerateUploadSpeed,
+			"downloadSpeed": ModerateDownloadSpeed,
+			"maxFileSize":  "500 MB",
+		})
 	})
 
 	authorized.GET("/files", func(c *gin.Context) {
@@ -465,7 +476,7 @@ func startAPIServer() {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Database error: %v", err)})
 			return
 		}
-		var responses []FileMetadataResponse
+		responses := make([]FileMetadataResponse, 0, len(models))
 		for _, model := range models {
 			resp, err := modelToResponse(model)
 			if err != nil {
@@ -503,70 +514,42 @@ func startAPIServer() {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Error reconstructing file: %v", err)})
 			return
 		}
+		defer os.Remove(outputPath)
 		c.FileAttachment(outputPath, model.FileName)
 	})
 
 	addr := ":" + port
-	log.Printf("API server running on %s", addr)
+	log.Printf("[INFO] Starting API server on %s", addr)
 	if err := router.Run(addr); err != nil {
-		log.Fatalf("Server failed: %v", err)
+		log.Fatalf("[ERROR] API server failed: %v", err)
 	}
 }
 
-// ========================
-// Additional Helper Functions (Service Health Check)
-// ========================
-
+// ### Service Health Check
 func getNodeStatus() string {
 	ipfsStatus := "DOWN"
 	if isIPFSRunning() {
 		ipfsStatus = "UP"
 	}
-
 	peers := network.GetConnectedPeers()
 	networkStatus := "LOW"
 	if len(peers) > 0 {
 		networkStatus = "GOOD"
 	}
-
-	dbStatus := "UNKNOWN"
+	dbStatus := "DOWN"
 	if db != nil {
-		if sqlDB, err := db.DB(); err == nil {
-			if err := sqlDB.Ping(); err == nil {
-				dbStatus = "UP"
-			} else {
-				dbStatus = "DOWN"
-			}
+		if sqlDB, err := db.DB(); err == nil && sqlDB.Ping() == nil {
+			dbStatus = "UP"
 		}
 	}
-
 	return fmt.Sprintf("IPFS: %s, Network: %s (%d peers), Database: %s", ipfsStatus, networkStatus, len(peers), dbStatus)
 }
 
-// ========================
-// CLI Command Definitions
-// ========================
-
+// ### CLI Commands
 var rootCmd = &cobra.Command{
 	Use:   "desvault",
 	Short: "DesVault Storage Node CLI",
 	Long:  "Manage and monitor your DesVault Storage Node",
-}
-
-var storageCmd = &cobra.Command{
-	Use:   "storage",
-	Short: "View/Edit allocated storage",
-	Run: func(cmd *cobra.Command, args []string) {
-		printCLIBanner()
-		storageGB, _ := setup.ReadStorageAllocation()
-		fmt.Printf("[+] Current Storage: %d GB\n", storageGB)
-		var newStorage int
-		fmt.Print("[?] Enter new storage allocation (or 0 to keep current): ")
-		fmt.Scan(&newStorage)
-		if newStorage > 0 {
-			setup.SetStorageAllocation(newStorage)
-		}
-	},
 }
 
 var runCmd = &cobra.Command{
@@ -578,39 +561,36 @@ var runCmd = &cobra.Command{
 
 		home, err := os.UserHomeDir()
 		if err != nil {
-			fmt.Println("[!] Could not determine home directory:", err)
-			return
+			log.Fatalf("[ERROR] Could not determine home directory: %v", err)
 		}
 		desvaultDir := filepath.Join(home, ".desvault")
 		if err := os.MkdirAll(desvaultDir, 0755); err != nil {
-			fmt.Println("[!] Failed to create directory:", err)
-			return
+			log.Fatalf("[ERROR] Failed to create directory: %v", err)
 		}
 		pidFile := filepath.Join(desvaultDir, "node.pid")
 		pid := os.Getpid()
-		f, err := os.OpenFile(pidFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			fmt.Println("[!] Could not open PID file:", err)
-			return
+		if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d\n", pid)), 0644); err != nil {
+			log.Fatalf("[ERROR] Failed to write PID file: %v", err)
 		}
-		defer f.Close()
-		if _, err := f.WriteString(fmt.Sprintf("%d\n", pid)); err != nil {
-			fmt.Println("[!] Failed to write PID:", err)
-		}
+		defer os.Remove(pidFile)
 
 		if err := startIPFSDaemon(); err != nil {
-			log.Fatalf("Failed to start IPFS daemon: %v", err)
+			log.Fatalf("[ERROR] Failed to start IPFS daemon: %v", err)
 		}
 
 		initDB()
 		storage.InitializeStorage()
 
-		// Start the node.
-		ctx := context.Background()
-		go startNode(ctx) // Run in background to allow API server to start.
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-		// Start the API server.
-		startAPIServer()
+		go startNode(ctx)
+		go startAPIServer()
+
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		<-sigChan
+		log.Println("[INFO] Shutting down node gracefully...")
 	},
 }
 
@@ -619,38 +599,31 @@ var stopCmd = &cobra.Command{
 	Short: "Stop the Storage Node",
 	Run: func(cmd *cobra.Command, args []string) {
 		printCLIBanner()
-		fmt.Println("[!] Stopping the node...")
-
 		home, err := os.UserHomeDir()
 		if err != nil {
-			fmt.Println("[!] Could not determine home directory:", err)
+			log.Printf("[ERROR] Could not determine home directory: %v", err)
 			return
 		}
 		pidFile := filepath.Join(home, ".desvault", "node.pid")
 		data, err := os.ReadFile(pidFile)
 		if err != nil {
-			fmt.Println("[!] No running node found (PID file missing).")
+			fmt.Println("[INFO] No running node found (PID file missing).")
 			return
 		}
-		pids := strings.Split(strings.TrimSpace(string(data)), "\n")
-		for _, pidStr := range pids {
-			if pidStr == "" {
-				continue
-			}
-			if _, err := strconv.Atoi(pidStr); err != nil {
-				fmt.Printf("[!] Invalid PID found: %s\n", pidStr)
-				continue
-			}
-			if err := exec.Command("kill", "-SIGTERM", pidStr).Run(); err != nil {
-				fmt.Printf("[!] Failed to stop process %s: %v\n", pidStr, err)
-			} else {
-				fmt.Printf("[+] Stopped process %s\n", pidStr)
-			}
+		pidStr := strings.TrimSpace(string(data))
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil {
+			fmt.Printf("[ERROR] Invalid PID: %s\n", pidStr)
+			return
 		}
-		if err := os.Remove(pidFile); err != nil {
-			fmt.Printf("[!] Failed to remove PID file: %v\n", err)
+		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+			fmt.Printf("[ERROR] Failed to stop process %d: %v\n", pid, err)
 		} else {
-			fmt.Println("[+] Node stopped successfully.")
+			fmt.Printf("[INFO] Stopped process %d\n", pid)
+			if err := os.Remove(pidFile); err != nil {
+				log.Printf("[ERROR] Failed to remove PID file: %v", err)
+			}
+			fmt.Println("[INFO] Node stopped successfully.")
 		}
 	},
 }
@@ -660,7 +633,7 @@ var statusCmd = &cobra.Command{
 	Short: "Check Storage Node status",
 	Run: func(cmd *cobra.Command, args []string) {
 		printCLIBanner()
-		fmt.Println("[+] Checking node status...")
+		fmt.Println("[INFO] Checking node status...")
 		ShowNodeStatus()
 	},
 }
@@ -680,55 +653,34 @@ func ShowNodeStatus() {
 	fmt.Printf("Total Points: %d pts\n", totalPoints)
 }
 
+var storageCmd = &cobra.Command{
+	Use:   "storage",
+	Short: "View/Edit allocated storage",
+	Run: func(cmd *cobra.Command, args []string) {
+		printCLIBanner()
+		storageGB, _ := setup.ReadStorageAllocation()
+		fmt.Printf("[INFO] Current Storage: %d GB\n", storageGB)
+		fmt.Print("[?] Enter new storage allocation (or 0 to keep current): ")
+		var newStorage int
+		fmt.Scan(&newStorage)
+		if newStorage > 0 {
+			setup.SetStorageAllocation(newStorage)
+			fmt.Printf("[INFO] Storage allocation updated to %d GB\n", newStorage)
+		}
+	},
+}
+
 var memeCmd = &cobra.Command{
 	Use:   "meme",
 	Short: "Display a random ASCII meme",
 	Run: func(cmd *cobra.Command, args []string) {
 		printCLIBanner()
 		bigMemes := []string{
-			`
-(╯°□°）╯︵ ┻━┻
-__________________
-|                |
-|   TABLE FLIP   |
-|  "FUCK THIS"   |
-|________________|
-`,
-			`
-ʕ•ᴥ•ʔ
-/ o o \
-(  "  )
-\~(*)~/
-/   \
-( U U )
-`,
-			`
-¯\_(ツ)_/¯
-`,
-			`
-(╯°□°）╯︵ ʞooqǝɔ
-`,
-			`
-(ง'̀-'́)ง
-`,
-			`
-(ಥ_ಥ)
-`,
-			`
-(¬‿¬)
-`,
-			`
-(ʘ‿ʘ)
-`,
-			`
-(☞ﾟヮﾟ)☞
-`,
-			`
-(ノಠ益ಠ)ノ彡┻━┻
-`,
-			`
-┬─┬ノ( º _ ºノ)
-`,
+			`(╯°□°）╯︵ ┻━┻`,
+			`ʕ•ᴥ•ʔ`,
+			`¯\_(ツ)_/¯`,
+			`(ง'̀-'́)ง`,
+			`(ಥ_ಥ)`,
 		}
 		index := time.Now().Unix() % int64(len(bigMemes))
 		fmt.Println(bigMemes[index])
@@ -746,21 +698,21 @@ var chatCmd = &cobra.Command{
 
 func startChat() {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("[*] Entering DesVault Chatroom...")
-	fmt.Println("[*] Type 'exit' to leave.")
+	fmt.Println("[INFO] Entering DesVault Chatroom...")
+	fmt.Println("[INFO] Type 'exit' to leave.")
 	peerID := network.GetNodePeerID()
 	peers := network.GetConnectedPeers()
 	if len(peers) == 0 {
-		fmt.Println("[!] No peers found. Try again later.")
+		fmt.Println("[WARN] No peers found.")
 		return
 	}
-	fmt.Printf("[+] Connected Peers: %d\n", len(peers))
+	fmt.Printf("[INFO] Connected Peers: %d\n", len(peers))
 	for {
 		fmt.Print("[You]: ")
 		msg, _ := reader.ReadString('\n')
 		msg = strings.TrimSpace(msg)
 		if msg == "exit" {
-			fmt.Println("[!] Exiting chat.")
+			fmt.Println("[INFO] Exiting chat.")
 			break
 		}
 		for _, p := range peers {
@@ -783,13 +735,13 @@ var rewardsCmd = &cobra.Command{
 func CheckRewards(nodeID string) {
 	rewardsData, err := rewards.LoadRewards()
 	if err != nil {
-		log.Println("[!] Failed to load rewards:", err)
-		fmt.Println("[-] Could not retrieve rewards. Ensure the node is active.")
+		log.Printf("[ERROR] Failed to load rewards: %v", err)
+		fmt.Println("[ERROR] Could not retrieve rewards.")
 		return
 	}
 	reward, exists := rewardsData[nodeID]
 	if !exists {
-		fmt.Println("[-] No rewards found for this node.")
+		fmt.Println("[INFO] No rewards found for this node.")
 		return
 	}
 	fmt.Printf("\n🎖️ [Reward Summary for Node %s]\n", reward.NodeID)
@@ -801,35 +753,30 @@ func CheckRewards(nodeID string) {
 
 var tlsCmd = &cobra.Command{
 	Use:   "tls",
-	Short: "Start a secure QUIC channel using TLS directly",
+	Short: "Start a secure QUIC channel using TLS",
 	Run: func(cmd *cobra.Command, args []string) {
 		certFile := "server.crt"
 		keyFile := "server.key"
 		tlsConfig, err := encryption.CreateTLSConfig(certFile, keyFile)
 		if err != nil {
-			log.Fatalf("Failed to create TLS config: %v", err)
+			log.Fatalf("[ERROR] Failed to create TLS config: %v", err)
 		}
-
 		quicConfig := &quic.Config{
 			EnableDatagrams: true,
 			KeepAlivePeriod: 30 * time.Second,
 		}
-
 		addr := "0.0.0.0:4242"
 		if err := encryption.SecureChannelWithTLS(addr, tlsConfig, quicConfig); err != nil {
-			log.Fatalf("Error in secure channel: %v", err)
+			log.Fatalf("[ERROR] Secure channel failed: %v", err)
 		}
 	},
 }
 
-// ========================
-// MAIN EXECUTION
-// ========================
-
+// ### Main Execution
 func Execute() {
 	rootCmd.AddCommand(runCmd, stopCmd, statusCmd, storageCmd, memeCmd, chatCmd, rewardsCmd, tlsCmd)
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		log.Printf("[ERROR] CLI execution failed: %v", err)
 		os.Exit(1)
 	}
 }

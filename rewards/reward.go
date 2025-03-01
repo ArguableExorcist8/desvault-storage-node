@@ -2,10 +2,13 @@ package rewards
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Reward represents the rewards earned by a node.
@@ -19,6 +22,7 @@ type Reward struct {
 }
 
 // CalculateRewards calculates the rewards for a node based on its type and base points.
+// It uses a multiplier specific to the node type, logs the result, and returns the Reward.
 func CalculateRewards(nodeID string, nodeType string, basePoints int) Reward {
 	multiplier := GetMultiplier(nodeType)
 	totalPoints := float64(basePoints) * multiplier
@@ -33,6 +37,12 @@ func CalculateRewards(nodeID string, nodeType string, basePoints int) Reward {
 	}
 	log.Printf("[+] Rewards updated: %s earned %.2f points", nodeID, totalPoints)
 	return reward
+}
+
+// CalculatePoints calculates reward points based on storage contributed.
+// Example: 100 points per GB per hour.
+func CalculatePoints(storageGB int) int {
+	return storageGB * 100
 }
 
 // Reward multipliers for different node types.
@@ -59,19 +69,19 @@ func GetMultiplier(nodeType string) float64 {
 var mu sync.Mutex
 var rewardFile = "rewards.json"
 
-// SaveRewards saves the rewards map to disk.
+// SaveRewards saves the rewards map (nodeID -> Reward) to disk as a JSON file.
 func SaveRewards(rewardsMap map[string]Reward) error {
 	mu.Lock()
 	defer mu.Unlock()
 
 	data, err := json.MarshalIndent(rewardsMap, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal rewards: %w", err)
 	}
 
 	err = os.WriteFile(rewardFile, data, 0644)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to write rewards file: %w", err)
 	}
 
 	log.Println("[+] Rewards saved to disk.")
@@ -87,15 +97,15 @@ func LoadRewards() (map[string]Reward, error) {
 	data, err := os.ReadFile(rewardFile)
 	if err != nil {
 		if os.IsNotExist(err) {
+			// No rewards file yet; return an empty map.
 			return map[string]Reward{}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("failed to read rewards file: %w", err)
 	}
 
 	var rewardsMap map[string]Reward
-	err = json.Unmarshal(data, &rewardsMap)
-	if err != nil {
-		return nil, err
+	if err := json.Unmarshal(data, &rewardsMap); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal rewards: %w", err)
 	}
 
 	return rewardsMap, nil
@@ -106,10 +116,13 @@ func LoadRewards() (map[string]Reward, error) {
 func LoadNodeRewards() map[string]Reward {
 	rewardsMap, err := LoadRewards()
 	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Printf("[!] Error loading node rewards: %v", err)
-		}
+		log.Printf("[!] Error loading node rewards: %v", err)
 		return map[string]Reward{}
 	}
 	return rewardsMap
+}
+
+// GenerateRewardID generates a unique reward identifier. In production, you might use this to track reward entries.
+func GenerateRewardID() string {
+	return uuid.New().String()
 }

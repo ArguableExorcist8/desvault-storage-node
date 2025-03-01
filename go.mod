@@ -15,8 +15,8 @@ require (
 	github.com/libp2p/go-libp2p-kad-dht v0.29.2
 	github.com/oschwald/geoip2-golang v1.11.0
 	github.com/quic-go/quic-go v0.50.0
-	github.com/spf13/cobra v1.8.1
-	golang.org/x/time v0.9.0
+	github.com/spf13/cobra v1.9.1
+	golang.org/x/time v0.10.0
 	gorm.io/datatypes v1.2.5
 	gorm.io/driver/postgres v1.5.11
 	gorm.io/driver/sqlite v1.5.7
@@ -160,7 +160,7 @@ require (
 	github.com/quic-go/webtransport-go v0.8.1-0.20241018022711-4ac2c9250e66 // indirect
 	github.com/raulk/go-watchdog v1.3.0 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/supranational/blst v0.3.14 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect

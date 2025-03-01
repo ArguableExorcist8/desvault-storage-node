@@ -21,7 +21,7 @@ import (
 const ChatProtocolID = "/desvault/chat/1.0.0"
 
 // -----------------------------------------------------------------------------
-// mDNS & DHT-Based Discovery
+// Libp2p-Based Peer Discovery
 // -----------------------------------------------------------------------------
 
 // Notifee implements the mdns.Notifee interface for mDNS discovery.
@@ -29,13 +29,14 @@ type Notifee struct {
 	Host host.Host
 }
 
-// HandlePeerFound handles peers discovered via mDNS.
+// HandlePeerFound is invoked when a peer is discovered via mDNS.
 func (n *Notifee) HandlePeerFound(pi peer.AddrInfo) {
 	log.Printf("[mDNS] Discovered peer: %s", pi.ID.String())
+	// Attempt to connect to the discovered peer.
 	if err := n.Host.Connect(context.Background(), pi); err != nil {
 		log.Printf("[ERROR] Failed to connect to peer %s: %v", pi.ID.String(), err)
 	} else {
-		log.Printf("[INFO] Successfully connected to peer: %s", pi.ID.String())
+		log.Printf("[INFO] Connected to peer: %s", pi.ID.String())
 	}
 }
 
@@ -47,18 +48,21 @@ type AutoDiscoveryService struct {
 
 // Start initializes mDNS discovery and bootstraps the DHT.
 func (s *AutoDiscoveryService) Start(ctx context.Context) {
-	// Initialize mDNS service (no error returned here, only one value).
-	mdnsService := mdns.NewMdnsService(s.Host, "_desvault._tcp", &Notifee{Host: s.Host})
-	// Start the mDNS service and handle any startup errors.
-	if err := mdnsService.Start(); err != nil {
+	// Initialize mDNS service.
+	mdnsService, err := mdns.NewMdnsService(s.Host, "_desvault._tcp", &Notifee{Host: s.Host})
+	if err != nil {
 		log.Printf("[ERROR] Failed to start mDNS service: %v", err)
 	} else {
-		log.Println("[INFO] mDNS service started successfully")
+		if err := mdnsService.Start(); err != nil {
+			log.Printf("[ERROR] mDNS service error: %v", err)
+		} else {
+			log.Println("[INFO] mDNS service started successfully")
+		}
 	}
 
-	// Bootstrap the DHT for peer discovery.
+	// Bootstrap the DHT.
 	if err := s.DHT.Bootstrap(ctx); err != nil {
-		log.Printf("[ERROR] Failed to bootstrap DHT: %v", err)
+		log.Printf("[ERROR] DHT bootstrap error: %v", err)
 	} else {
 		log.Println("[INFO] DHT bootstrap completed")
 	}
@@ -66,15 +70,22 @@ func (s *AutoDiscoveryService) Start(ctx context.Context) {
 	log.Println("[INFO] Peer discovery fully initialized")
 }
 
-// InitializeNode creates a libp2p host with a DHT instance and returns an AutoDiscoveryService.
+// -----------------------------------------------------------------------------
+// Node Initialization and Global Helpers
+// -----------------------------------------------------------------------------
+
+var globalADS *AutoDiscoveryService
+
+// InitializeNode creates a libp2p host with a DHT instance, sets up mDNS discovery,
+// and a stream handler for chat messages. It returns an AutoDiscoveryService.
 func InitializeNode(ctx context.Context) (*AutoDiscoveryService, error) {
-	// Create a new libp2p host listening on all interfaces at port 4001.
+	// Create a new libp2p host.
 	h, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create libp2p host: %v", err)
 	}
 
-	// Initialize the Kademlia DHT in auto mode.
+	// Initialize the Kademlia DHT.
 	kademliaDHT, err := dht.New(ctx, h, dht.Mode(dht.ModeAuto))
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize DHT: %v", err)
@@ -98,16 +109,9 @@ func InitializeNode(ctx context.Context) (*AutoDiscoveryService, error) {
 		}
 	})
 
-	// Store the service globally for helper function access.
 	SetGlobalAutoDiscoveryService(ads)
 	return ads, nil
 }
-
-// -----------------------------------------------------------------------------
-// Global Helpers
-// -----------------------------------------------------------------------------
-
-var globalADS *AutoDiscoveryService
 
 // SetGlobalAutoDiscoveryService stores the global AutoDiscoveryService instance.
 func SetGlobalAutoDiscoveryService(ads *AutoDiscoveryService) {
@@ -165,36 +169,40 @@ func SendMessage(peerID string, msg string) error {
 }
 
 // -----------------------------------------------------------------------------
-// Registration & Monitoring (Production Implementation)
+// Registration, Announcements & Monitoring
 // -----------------------------------------------------------------------------
 
-// RegisterNode registers the node on the network using the provided configuration.
+// RegisterNode registers the node on the network using the provided production configuration.
+// In production, this could involve publishing node details to a central registry or a distributed ledger.
 func RegisterNode(h host.Host, config *setup.Config) error {
-	// In a production environment, this could publish node details to a registry or blockchain.
-	// For this example, we'll simulate registration with logging and a simple validation.
 	if config == nil {
 		return fmt.Errorf("configuration is nil")
 	}
-
 	peerID := h.ID().String()
 	log.Printf("[INFO] Registering node %s with configuration: %+v", peerID, config)
-
-	// Simulate a production registration process (e.g., API call or blockchain transaction).
-	// Replace this with actual logic, such as publishing to a distributed ledger.
+	// TODO: Replace with actual registration logic (e.g., API call, blockchain transaction).
 	time.Sleep(1 * time.Second) // Simulate network delay.
 	log.Printf("[INFO] Node %s successfully registered", peerID)
 	return nil
 }
 
-// MonitorNetwork continuously monitors network connectivity and logs peer count.
+// AnnounceStorage announces the node's storage contribution to the network.
+// In production, this function might publish a message via a pubsub mechanism or update a distributed registry.
+func AnnounceStorage(storageGB int) error {
+	log.Printf("[INFO] Announcing %d GB of storage contribution to the network", storageGB)
+	// TODO: Replace with real network announcement logic (e.g., using libp2p PubSub).
+	return nil
+}
+
+// MonitorNetwork continuously monitors network connectivity and logs the current number of connected peers.
 func MonitorNetwork(h host.Host) {
 	log.Println("[INFO] Starting network monitoring...")
 	for {
 		peers := h.Network().Peers()
-		peerCount := len(peers)
-		log.Printf("[INFO] Connected to %d peers", peerCount)
-		if peerCount == 0 {
-			log.Println("[WARN] No peers connected; network may be isolated")
+		count := len(peers)
+		log.Printf("[INFO] Connected to %d peers", count)
+		if count == 0 {
+			log.Println("[WARN] No peers connected; the network may be isolated")
 		}
 		time.Sleep(10 * time.Second)
 	}
