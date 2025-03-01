@@ -388,7 +388,7 @@ func startNode(ctx context.Context) {
 	fmt.Printf("Estimated Rewards: %d pts/hour\n", storageGB*100)
 
 	// Announce storage contribution
-	if err := network.AnnounceStorage(storageGB); err != nil {
+	if err := ads.AnnounceStorage(storageGB); err != nil {
 		log.Printf("[ERROR] Failed to announce storage: %v", err)
 	} else {
 		log.Printf("[INFO] Announced %d GB of storage to the network.", storageGB)

@@ -13,6 +13,7 @@ require (
 	github.com/libp2p/go-libp2p v0.41.0
 	github.com/libp2p/go-libp2p-core v0.20.1
 	github.com/libp2p/go-libp2p-kad-dht v0.29.2
+	github.com/libp2p/go-libp2p-pubsub v0.13.0
 	github.com/oschwald/geoip2-golang v1.11.0
 	github.com/quic-go/quic-go v0.50.0
 	github.com/spf13/cobra v1.9.1
@@ -68,6 +69,7 @@ require (
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

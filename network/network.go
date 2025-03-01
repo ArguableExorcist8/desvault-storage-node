@@ -2,9 +2,12 @@ package network
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -14,8 +17,9 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	mdns "github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 
-	"github.com/ArguableExorcist8/desvault-storage-node/setup" // Production configuration
+	"github.com/ArguableExorcist8/desvault-storage-node/setup"
 )
 
 const ChatProtocolID = "/desvault/chat/1.0.0"
@@ -40,24 +44,21 @@ func (n *Notifee) HandlePeerFound(pi peer.AddrInfo) {
 	}
 }
 
-// AutoDiscoveryService encapsulates the libp2p host and DHT instance.
+// AutoDiscoveryService encapsulates the libp2p host, DHT instance, and PubSub.
 type AutoDiscoveryService struct {
-	Host host.Host
-	DHT  *dht.IpfsDHT
+	Host   host.Host
+	DHT    *dht.IpfsDHT
+	PubSub *pubsub.PubSub
 }
 
-// Start initializes mDNS discovery and bootstraps the DHT.
+// Start initializes mDNS discovery, bootstraps the DHT, and starts the mDNS service.
 func (s *AutoDiscoveryService) Start(ctx context.Context) {
 	// Initialize mDNS service.
-	mdnsService, err := mdns.NewMdnsService(s.Host, "_desvault._tcp", &Notifee{Host: s.Host})
-	if err != nil {
-		log.Printf("[ERROR] Failed to start mDNS service: %v", err)
+	mdnsService := mdns.NewMdnsService(s.Host, "_desvault._tcp", &Notifee{Host: s.Host})
+	if err := mdnsService.Start(); err != nil {
+		log.Printf("[ERROR] mDNS service error: %v", err)
 	} else {
-		if err := mdnsService.Start(); err != nil {
-			log.Printf("[ERROR] mDNS service error: %v", err)
-		} else {
-			log.Println("[INFO] mDNS service started successfully")
-		}
+		log.Println("[INFO] mDNS service started successfully")
 	}
 
 	// Bootstrap the DHT.
@@ -70,14 +71,30 @@ func (s *AutoDiscoveryService) Start(ctx context.Context) {
 	log.Println("[INFO] Peer discovery fully initialized")
 }
 
+// AnnounceStorage publishes the node's storage contribution to the network using PubSub.
+func (s *AutoDiscoveryService) AnnounceStorage(storageGB int) error {
+	topic, err := s.PubSub.Join("storage-announcements")
+	if err != nil {
+		return fmt.Errorf("failed to join pubsub topic: %v", err)
+	}
+	// Create and publish the storage announcement message.
+	msg := fmt.Sprintf("Node %s offering %dGB storage", s.Host.ID().String(), storageGB)
+	if err := topic.Publish(context.Background(), []byte(msg)); err != nil {
+		return fmt.Errorf("failed to publish storage announcement: %v", err)
+	}
+	log.Printf("[INFO] Storage announced: %s", msg)
+	return nil
+}
+
 // -----------------------------------------------------------------------------
 // Node Initialization and Global Helpers
 // -----------------------------------------------------------------------------
 
 var globalADS *AutoDiscoveryService
 
-// InitializeNode creates a libp2p host with a DHT instance, sets up mDNS discovery,
-// and a stream handler for chat messages. It returns an AutoDiscoveryService.
+// InitializeNode creates a libp2p host with a DHT and PubSub instance,
+// sets up mDNS discovery, and a stream handler for chat messages.
+// It returns an AutoDiscoveryService.
 func InitializeNode(ctx context.Context) (*AutoDiscoveryService, error) {
 	// Create a new libp2p host.
 	h, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/4001"))
@@ -91,9 +108,16 @@ func InitializeNode(ctx context.Context) (*AutoDiscoveryService, error) {
 		return nil, fmt.Errorf("failed to initialize DHT: %v", err)
 	}
 
+	// Initialize PubSub using GossipSub.
+	ps, err := pubsub.NewGossipSub(ctx, h)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pubsub: %v", err)
+	}
+
 	ads := &AutoDiscoveryService{
-		Host: h,
-		DHT:  kademliaDHT,
+		Host:   h,
+		DHT:    kademliaDHT,
+		PubSub: ps,
 	}
 
 	// Set up a stream handler for the chat protocol.
@@ -173,24 +197,35 @@ func SendMessage(peerID string, msg string) error {
 // -----------------------------------------------------------------------------
 
 // RegisterNode registers the node on the network using the provided production configuration.
-// In production, this could involve publishing node details to a central registry or a distributed ledger.
+// This implementation performs an HTTP POST to a registration service endpoint.
+// The endpoint is defined here as a default constant, but you can modify this to read from configuration.
 func RegisterNode(h host.Host, config *setup.Config) error {
-	if config == nil {
-		return fmt.Errorf("configuration is nil")
-	}
+	const defaultRegistrationEndpoint = "http://localhost:8080/register"
+	registrationEndpoint := defaultRegistrationEndpoint
+
 	peerID := h.ID().String()
 	log.Printf("[INFO] Registering node %s with configuration: %+v", peerID, config)
-	// TODO: Replace with actual registration logic (e.g., API call, blockchain transaction).
-	time.Sleep(1 * time.Second) // Simulate network delay.
-	log.Printf("[INFO] Node %s successfully registered", peerID)
-	return nil
-}
 
-// AnnounceStorage announces the node's storage contribution to the network.
-// In production, this function might publish a message via a pubsub mechanism or update a distributed registry.
-func AnnounceStorage(storageGB int) error {
-	log.Printf("[INFO] Announcing %d GB of storage contribution to the network", storageGB)
-	// TODO: Replace with real network announcement logic (e.g., using libp2p PubSub).
+	// Prepare registration data.
+	data := map[string]interface{}{
+		"peerID":    peerID,
+		"addresses": h.Addrs(),
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal registration data: %v", err)
+	}
+
+	resp, err := http.Post(registrationEndpoint, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("registration request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("registration failed with status: %s", resp.Status)
+	}
+	log.Printf("[INFO] Node %s successfully registered with registration service", peerID)
 	return nil
 }
 
@@ -207,3 +242,7 @@ func MonitorNetwork(h host.Host) {
 		time.Sleep(10 * time.Second)
 	}
 }
+
+
+
+// The RegisterNode function uses a default registration endpoint constant (set to http://localhost:8080/register). i need to modify this to read from my configuration.
