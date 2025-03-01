@@ -24,7 +24,6 @@ import (
 	"github.com/ArguableExorcist8/desvault-storage-node/p2p"
 	"github.com/ArguableExorcist8/desvault-storage-node/rewards"
 	"github.com/ArguableExorcist8/desvault-storage-node/setup"
-	"github.com/ArguableExorcist8/desvault-storage-node/shards"
 	"github.com/ArguableExorcist8/desvault-storage-node/storage"
 	"github.com/ArguableExorcist8/desvault-storage-node/utils"
 
@@ -38,119 +37,25 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// Constants used for file upload/download limits.
+// -----------------------------------------------------------------------------
+// Constants and Global Variables
+// -----------------------------------------------------------------------------
+
 const (
 	ModerateUploadSpeed   = "5–10 Mbps"
 	ModerateDownloadSpeed = "10–25 Mbps"
 	MaxFileSizeBytes      = 524288000 // 500 MB
 )
 
-// Global variables.
 var (
 	port = getEnv("PORT", "8080")
 	db   *gorm.DB
 )
 
-// StartNode initializes the node’s wallet, peer discovery, and network registration.
-func StartNode() error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+// -----------------------------------------------------------------------------
+// Database Models and Converters
+// -----------------------------------------------------------------------------
 
-	config, err := setup.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load configuration: %v", err)
-	}
-	log.Println("[INFO] Production configuration loaded.")
-
-	// Initialize wallet authentication.
-	if err := auth.InitializeWallet(config.WalletConfig); err != nil {
-		return fmt.Errorf("wallet initialization failed: %v", err)
-	}
-	log.Println("[INFO] Wallet authentication initialized.")
-
-	// Start peer discovery.
-	h, dhtService, err := p2p.StartLibp2pDiscovery()
-	if err != nil {
-		return fmt.Errorf("failed to start peer discovery: %v", err)
-	}
-	log.Printf("[INFO] Node started with Peer ID: %s", h.ID().String())
-	for _, addr := range h.Addrs() {
-		log.Printf("[INFO] Listening on: %s/p2p/%s", addr, h.ID().String())
-	}
-
-	// Register node on the network.
-	if err := network.RegisterNode(h, config); err != nil {
-		return fmt.Errorf("failed to register node on the network: %v", err)
-	}
-	log.Println("[INFO] Node registered on the network.")
-
-	// Close DHT on shutdown.
-	go func() {
-		<-ctx.Done()
-		if err := dhtService.Close(); err != nil {
-			log.Printf("[ERROR] Failed to close DHT: %v", err)
-		}
-		log.Println("[INFO] DHT closed.")
-	}()
-
-	// Start network monitoring.
-	go network.MonitorNetwork(h)
-
-	log.Println("[INFO] Node startup completed successfully.")
-
-	// Wait for shutdown signal.
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	<-sigChan
-	log.Println("[INFO] Received shutdown signal, shutting down node...")
-	return nil
-}
-
-// Shared helpers.
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func generateAuthToken() string {
-	token, err := utils.GenerateSecureToken(32)
-	if err != nil {
-		log.Printf("[ERROR] Failed to generate auth token: %v", err)
-		return fmt.Sprintf("%x", time.Now().UnixNano())
-	}
-	return token
-}
-
-func generateCID() string {
-	cid, err := utils.GenerateCID()
-	if err != nil {
-		log.Printf("[ERROR] Failed to generate CID: %v", err)
-		return fmt.Sprintf("%016d", rand.Int63())
-	}
-	return cid
-}
-
-func formatFileSize(size int64) string {
-	const (
-		KB = 1024
-		MB = KB * 1024
-		GB = MB * 1024
-	)
-	switch {
-	case size < KB:
-		return fmt.Sprintf("%d B", size)
-	case size < MB:
-		return fmt.Sprintf("%.2f KB", float64(size)/KB)
-	case size < GB:
-		return fmt.Sprintf("%.2f MB", float64(size)/MB)
-	default:
-		return fmt.Sprintf("%.2f GB", float64(size)/GB)
-	}
-}
-
-// Database models & converters.
 type FileMetadataModel struct {
 	CID       string         `gorm:"column:cid;primaryKey;not null;size:255" json:"cid"`
 	FileName  string         `gorm:"size:255" json:"fileName"`
@@ -196,6 +101,57 @@ func fileMetadataToModel(metadata storage.FileMetadata) (FileMetadataModel, erro
 	}, nil
 }
 
+// -----------------------------------------------------------------------------
+// Helper Functions
+// -----------------------------------------------------------------------------
+
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func generateAuthToken() string {
+	token, err := utils.GenerateSecureToken(32)
+	if err != nil {
+		log.Printf("[ERROR] Failed to generate auth token: %v", err)
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return token
+}
+
+func generateCID() string {
+	cid, err := utils.GenerateCID()
+	if err != nil {
+		log.Printf("[ERROR] Failed to generate CID: %v", err)
+		return fmt.Sprintf("%016d", rand.Int63())
+	}
+	return cid
+}
+
+func formatFileSize(size int64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+	)
+	switch {
+	case size < KB:
+		return fmt.Sprintf("%d B", size)
+	case size < MB:
+		return fmt.Sprintf("%.2f KB", float64(size)/KB)
+	case size < GB:
+		return fmt.Sprintf("%.2f MB", float64(size)/MB)
+	default:
+		return fmt.Sprintf("%.2f GB", float64(size)/GB)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Database Initialization
+// -----------------------------------------------------------------------------
+
 func initDB() {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
@@ -214,7 +170,10 @@ func initDB() {
 	log.Println("[INFO] Database initialized successfully.")
 }
 
-// Middleware definitions.
+// -----------------------------------------------------------------------------
+// Middleware Definitions
+// -----------------------------------------------------------------------------
+
 var (
 	visitors = make(map[string]*rate.Limiter)
 	mtx      sync.Mutex
@@ -226,7 +185,7 @@ func getVisitor(ip string) *rate.Limiter {
 	if limiter, exists := visitors[ip]; exists {
 		return limiter
 	}
-	limiter := rate.NewLimiter(rate.Every(time.Second), 5)
+	limiter := rate.NewLimiter(rate.Every(time.Second), 5) // 5 requests per second
 	visitors[ip] = limiter
 	return limiter
 }
@@ -273,7 +232,10 @@ func authMiddleware(c *gin.Context) {
 	c.Next()
 }
 
-// CLI banner functions.
+// -----------------------------------------------------------------------------
+// CLI Banner Functions
+// -----------------------------------------------------------------------------
+
 func printCLIBanner() {
 	fmt.Println(`
 ██████╗ ███████╗███████╗██╗   ██╗ █████╗ ██╗   ██╗██╗ ████████╗
@@ -300,7 +262,10 @@ func printChatBanner() {
 	fmt.Println("Type your message and press Enter to send. Press Ctrl+C to exit.")
 }
 
-// IPFS auto-start helpers.
+// -----------------------------------------------------------------------------
+// IPFS Auto-Start Helpers
+// -----------------------------------------------------------------------------
+
 func isIPFSRunning() bool {
 	resp, err := http.Get("http://localhost:5001/api/v0/version")
 	if err != nil {
@@ -337,7 +302,10 @@ func startIPFSDaemon() error {
 	return fmt.Errorf("IPFS daemon failed to start within timeout")
 }
 
-// Node startup function.
+// -----------------------------------------------------------------------------
+// Node Startup and Service Functions
+// -----------------------------------------------------------------------------
+
 func startNode(ctx context.Context) {
 	authToken := generateAuthToken()
 	log.Printf("[INFO] New authentication token generated: %s", authToken)
@@ -363,6 +331,7 @@ func startNode(ctx context.Context) {
 	}
 	log.Printf("[INFO] Node started with Peer ID: %s", ads.Host.ID().String())
 
+	// Wait for seed nodes if necessary.
 	if os.Getenv("SEED_NODE") != "true" {
 		timeout := 5 * time.Minute
 		startWait := time.Now()
@@ -399,7 +368,6 @@ func startNode(ctx context.Context) {
 	log.Printf("[INFO] Node fully operational. Auth Token: %s", authToken)
 }
 
-// API server startup.
 func startAPIServer() {
 	router := gin.New()
 	router.Use(gin.Logger())
@@ -445,6 +413,7 @@ func startAPIServer() {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Upload failed: %v", err)})
 			return
 		}
+		// Generate a new CID (if needed) and update metadata.
 		newCID := generateCID()
 		metadata.CID = newCID
 		log.Printf("[INFO] Generated CID for file %s: %s", file.Filename, newCID)
@@ -526,7 +495,10 @@ func startAPIServer() {
 	}
 }
 
-// Service health check.
+// -----------------------------------------------------------------------------
+// Service Health Check
+// -----------------------------------------------------------------------------
+
 func getNodeStatus() string {
 	ipfsStatus := "DOWN"
 	if isIPFSRunning() {
@@ -546,7 +518,25 @@ func getNodeStatus() string {
 	return fmt.Sprintf("IPFS: %s, Network: %s (%d peers), Database: %s", ipfsStatus, networkStatus, len(peers), dbStatus)
 }
 
-// CLI commands.
+func ShowNodeStatus() {
+	storageGB, pointsPerHour := setup.ReadStorageAllocation()
+	uptime := setup.GetUptime()
+	status := getNodeStatus()
+	totalPoints := int(time.Since(setup.GetStartTimeOrNow()).Hours()) * pointsPerHour
+
+	fmt.Println("\n=====================")
+	fmt.Println(" DesVault Node Status")
+	fmt.Println("=====================")
+	fmt.Printf("Status: %s\n", status)
+	fmt.Printf("Total Uptime: %s\n", uptime)
+	fmt.Printf("Storage Contributed: %d GB\n", storageGB)
+	fmt.Printf("Total Points: %d pts\n", totalPoints)
+}
+
+// -----------------------------------------------------------------------------
+// CLI Commands and Main Execution
+// -----------------------------------------------------------------------------
+
 var rootCmd = &cobra.Command{
 	Use:   "desvault",
 	Short: "DesVault Storage Node CLI",
@@ -637,21 +627,6 @@ var statusCmd = &cobra.Command{
 		fmt.Println("[INFO] Checking node status...")
 		ShowNodeStatus()
 	},
-}
-
-func ShowNodeStatus() {
-	storageGB, pointsPerHour := setup.ReadStorageAllocation()
-	uptime := setup.GetUptime()
-	status := getNodeStatus()
-	totalPoints := int(time.Since(setup.GetStartTimeOrNow()).Hours()) * pointsPerHour
-
-	fmt.Println("\n=====================")
-	fmt.Println(" DesVault Node Status")
-	fmt.Println("=====================")
-	fmt.Printf("Status: %s\n", status)
-	fmt.Printf("Total Uptime: %s\n", uptime)
-	fmt.Printf("Storage Contributed: %d GB\n", storageGB)
-	fmt.Printf("Total Points: %d pts\n", totalPoints)
 }
 
 var storageCmd = &cobra.Command{
@@ -773,7 +748,7 @@ var tlsCmd = &cobra.Command{
 	},
 }
 
-// Main CLI execution.
+// Execute sets up and runs the CLI.
 func Execute() {
 	rootCmd.AddCommand(runCmd, stopCmd, statusCmd, storageCmd, memeCmd, chatCmd, rewardsCmd, tlsCmd)
 	if err := rootCmd.Execute(); err != nil {
