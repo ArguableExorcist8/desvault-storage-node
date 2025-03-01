@@ -11,6 +11,7 @@ import (
 )
 
 // CreateTLSConfig loads a TLS certificate and key from files and returns a TLS configuration.
+// In production, certificates and keys should be managed securely.
 func CreateTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
@@ -23,7 +24,7 @@ func CreateTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 }
 
 // SecureChannelWithTLS starts a QUIC listener on the given address using the provided TLS and QUIC configurations.
-// It accepts incoming sessions and streams concurrently and echoes received data back to the sender.
+// It accepts incoming connections and handles streams concurrently, echoing received data back.
 func SecureChannelWithTLS(addr string, tlsConfig *tls.Config, quicConfig *quic.Config) error {
 	listener, err := quic.ListenAddr(addr, tlsConfig, quicConfig)
 	if err != nil {
@@ -32,23 +33,23 @@ func SecureChannelWithTLS(addr string, tlsConfig *tls.Config, quicConfig *quic.C
 	defer listener.Close()
 	log.Printf("[INFO] QUIC listener established on %s", addr)
 
-	// Accept sessions in a continuous loop.
+	// Continuously accept incoming connections.
 	for {
-		session, err := listener.Accept(context.Background())
+		conn, err := listener.Accept(context.Background())
 		if err != nil {
-			log.Printf("[ERROR] Failed to accept QUIC session: %v", err)
+			log.Printf("[ERROR] Failed to accept QUIC connection: %v", err)
 			continue
 		}
-		go handleSession(session)
+		go handleConnection(conn)
 	}
 }
 
-// handleSession handles an individual QUIC session by continuously accepting streams.
-func handleSession(session quic.Session) {
-	log.Printf("[INFO] Accepted session from %v", session.RemoteAddr())
-	defer session.CloseWithError(0, "session closed")
+// handleConnection handles an individual QUIC connection by continuously accepting streams.
+func handleConnection(conn quic.Connection) {
+	log.Printf("[INFO] Accepted connection from %v", conn.RemoteAddr())
+	defer conn.CloseWithError(0, "connection closed")
 	for {
-		stream, err := session.AcceptStream(context.Background())
+		stream, err := conn.AcceptStream(context.Background())
 		if err != nil {
 			log.Printf("[ERROR] Failed to accept stream: %v", err)
 			return
@@ -74,9 +75,7 @@ func handleStream(stream quic.Stream) {
 		}
 		data := buf[:n]
 		log.Printf("[INFO] Received: %s", data)
-		// Echo the received data back to the client.
-		_, err = stream.Write(data)
-		if err != nil {
+		if _, err := stream.Write(data); err != nil {
 			log.Printf("[ERROR] Error writing to stream: %v", err)
 			return
 		}

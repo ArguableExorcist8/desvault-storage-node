@@ -21,7 +21,6 @@ import (
 	"github.com/ArguableExorcist8/desvault-storage-node/auth"
 	"github.com/ArguableExorcist8/desvault-storage-node/encryption"
 	"github.com/ArguableExorcist8/desvault-storage-node/network"
-	"github.com/ArguableExorcist8/desvault-storage-node/p2p"
 	"github.com/ArguableExorcist8/desvault-storage-node/rewards"
 	"github.com/ArguableExorcist8/desvault-storage-node/setup"
 	"github.com/ArguableExorcist8/desvault-storage-node/storage"
@@ -185,7 +184,7 @@ func getVisitor(ip string) *rate.Limiter {
 	if limiter, exists := visitors[ip]; exists {
 		return limiter
 	}
-	limiter := rate.NewLimiter(rate.Every(time.Second), 5) // 5 requests per second
+	limiter := rate.NewLimiter(rate.Every(time.Second), 5)
 	visitors[ip] = limiter
 	return limiter
 }
@@ -312,10 +311,13 @@ func startNode(ctx context.Context) {
 	fmt.Println("Node ONLINE")
 	fmt.Printf("Region: %s\n", setup.GetRegion())
 	fmt.Printf("Uptime: %s\n", setup.GetUptime())
-	storageGB, _ := setup.ReadStorageAllocation()
+	storageGB, err := setup.ReadStorageAllocation()
+	if err != nil {
+		storageGB = 0
+	}
 	fmt.Printf("Storage: %d GB\n", storageGB)
-	points := rewards.CalculatePoints(storageGB)
-	fmt.Printf("Points: %d\n", points)
+	pointsPerHour := storageGB * 100
+	fmt.Printf("Estimated Rewards: %d pts/hour\n", pointsPerHour)
 	shardsCount := storage.GetShardCount()
 	fmt.Printf("Shards: %d\n", shardsCount)
 
@@ -355,7 +357,7 @@ func startNode(ctx context.Context) {
 	}
 
 	fmt.Printf("Allocated Storage: %d GB\n", storageGB)
-	fmt.Printf("Estimated Rewards: %d pts/hour\n", storageGB*100)
+	fmt.Printf("Total Uptime: %s\n", setup.GetUptime())
 
 	// Announce storage contribution.
 	if err := ads.AnnounceStorage(storageGB); err != nil {
@@ -413,7 +415,7 @@ func startAPIServer() {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "message": fmt.Sprintf("Upload failed: %v", err)})
 			return
 		}
-		// Generate a new CID (if needed) and update metadata.
+		// Generate a new CID and update metadata.
 		newCID := generateCID()
 		metadata.CID = newCID
 		log.Printf("[INFO] Generated CID for file %s: %s", file.Filename, newCID)
@@ -519,9 +521,13 @@ func getNodeStatus() string {
 }
 
 func ShowNodeStatus() {
-	storageGB, pointsPerHour := setup.ReadStorageAllocation()
+	storageGB, err := setup.ReadStorageAllocation()
+	if err != nil {
+		storageGB = 0
+	}
 	uptime := setup.GetUptime()
 	status := getNodeStatus()
+	pointsPerHour := storageGB * 100
 	totalPoints := int(time.Since(setup.GetStartTimeOrNow()).Hours()) * pointsPerHour
 
 	fmt.Println("\n=====================")
@@ -634,7 +640,10 @@ var storageCmd = &cobra.Command{
 	Short: "View/Edit allocated storage",
 	Run: func(cmd *cobra.Command, args []string) {
 		printCLIBanner()
-		storageGB, _ := setup.ReadStorageAllocation()
+		storageGB, err := setup.ReadStorageAllocation()
+		if err != nil {
+			storageGB = 0
+		}
 		fmt.Printf("[INFO] Current Storage: %d GB\n", storageGB)
 		fmt.Print("[?] Enter new storage allocation (or 0 to keep current): ")
 		var newStorage int
