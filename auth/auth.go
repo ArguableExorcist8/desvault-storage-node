@@ -94,7 +94,7 @@ func LoadWalletAddress() string {
 }
 
 // GenerateToken creates a secure authentication token for the node.
-// In production, you might load this from configuration or an environment variable.
+// This token can be used to authenticate API requests.
 func GenerateToken() string {
 	tokenLock.Lock()
 	defer tokenLock.Unlock()
@@ -116,7 +116,7 @@ func ValidateToken(providedToken string) bool {
 }
 
 // ValidateRequest is a Gin middleware that validates incoming requests based on the Authorization header.
-// The expected header should be in the format: "Bearer <token>"
+// The expected header format is: "Bearer <token>"
 func ValidateRequest(c *gin.Context) {
 	providedToken := c.GetHeader("Authorization")
 	if providedToken == "" {
@@ -126,7 +126,7 @@ func ValidateRequest(c *gin.Context) {
 	}
 
 	// If the header is in "Bearer <token>" format, extract the token.
-	if len(providedToken) > 7 && providedToken[:7] == "Bearer " {
+	if len(providedToken) > 7 && strings.HasPrefix(providedToken, "Bearer ") {
 		providedToken = providedToken[7:]
 	}
 

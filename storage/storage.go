@@ -19,10 +19,10 @@ type Shard struct {
 	ID     string   // Unique shard identifier (hash)
 	Data   []byte   // The raw (or encrypted) shard data
 	CID    string   // IPFS CID after uploading the shard
-	Copies []string // Node IDs where the shard is stored
+	Copies []string // Node IDs where the shard is stored (if applicable)
 }
 
-// FileMetadata defines the metadata for a file split into shards.
+// FileMetadata defines metadata for a file split into shards.
 type FileMetadata struct {
 	FileName string
 	FileSize int64
@@ -31,13 +31,13 @@ type FileMetadata struct {
 }
 
 var (
-	// ShardMap is a global map for tracking storage (if needed)
+	// ShardMap tracks stored shards (for production, consider a persistent store).
 	ShardMap = make(map[string]bool)
 	mu       sync.Mutex // Mutex for thread-safe operations
 )
 
 // encryptionKey is a 32-byte key for AES-256 encryption.
-// In production, generate and manage this key securely.
+// In production, manage this key securely (e.g., in an HSM or secure vault).
 var encryptionKey = []byte("0123456789abcdef0123456789abcdef") // 32 bytes
 
 // GetStorageDir returns the dedicated storage folder path.
@@ -55,28 +55,30 @@ func InitializeStorage() {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		log.Fatalf("Failed to create storage directory: %v", err)
 	}
-	log.Printf("[+] Storage directory initialized: %s", dir)
+	log.Printf("[INFO] Storage directory initialized: %s", dir)
 }
 
-// ConnectToIPFS connects to the local IPFS daemon.
+// ConnectToIPFS creates a new IPFS shell connection.
+// In production, consider handling connection failures/retries.
 func ConnectToIPFS() *shell.Shell {
 	return shell.NewShell("localhost:5001")
 }
 
-// SplitFileIntoShards splits a file into 5 shards and handles any remainder.
+// SplitFileIntoShards splits a file into a fixed number of shards.
+// It evenly divides the file and handles any remainder.
 func SplitFileIntoShards(filename string) ([]Shard, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open file %s: %w", filename, err)
 	}
 	defer file.Close()
 
 	fileInfo, err := file.Stat()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to stat file %s: %w", filename, err)
 	}
 	fileSize := fileInfo.Size()
-	numShards := 5
+	const numShards = 5
 
 	baseSize := fileSize / int64(numShards)
 	remainder := fileSize % int64(numShards)
@@ -90,12 +92,12 @@ func SplitFileIntoShards(filename string) ([]Shard, error) {
 		data := make([]byte, currentSize)
 		n, err := io.ReadFull(file, data)
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-			return nil, err
+			return nil, fmt.Errorf("failed to read shard %d: %w", i, err)
 		}
 		data = data[:n]
 		hash := sha256.Sum256(data)
 		shardID := hex.EncodeToString(hash[:])
-		log.Printf("Shard %d raw data length: %d", i, len(data))
+		log.Printf("[INFO] Shard %d created with %d bytes", i, len(data))
 		shard := Shard{
 			ID:   shardID,
 			Data: data,
@@ -106,72 +108,83 @@ func SplitFileIntoShards(filename string) ([]Shard, error) {
 }
 
 // UploadShardToIPFS encrypts a shard's data, uploads it to IPFS,
-// and writes a permanent copy in the dedicated storage folder.
+// and saves a permanent copy locally.
 func UploadShardToIPFS(shard *Shard) error {
 	sh := ConnectToIPFS()
 
+	// Encrypt the shard data.
 	encryptedData, err := EncryptData(shard.Data, encryptionKey)
 	if err != nil {
 		return fmt.Errorf("failed to encrypt shard data: %w", err)
 	}
 	shard.Data = encryptedData
-	log.Printf("Encrypted shard %s length: %d", shard.ID, len(shard.Data))
+	log.Printf("[INFO] Shard %s encrypted (%d bytes)", shard.ID, len(shard.Data))
 
-	// Write to a temporary file.
+	// Write encrypted data to a temporary file.
 	tempFile, err := os.CreateTemp("", "shard_")
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create temporary file for shard %s: %w", shard.ID, err)
 	}
-	defer os.Remove(tempFile.Name())
+	defer func() {
+		tempFile.Close()
+		os.Remove(tempFile.Name())
+	}()
 	if _, err := tempFile.Write(shard.Data); err != nil {
-		return err
+		return fmt.Errorf("failed to write encrypted data for shard %s: %w", shard.ID, err)
 	}
-	// Reset file pointer so that IPFS can read from the beginning.
 	if _, err := tempFile.Seek(0, io.SeekStart); err != nil {
-		return err
+		return fmt.Errorf("failed to reset file pointer for shard %s: %w", shard.ID, err)
 	}
 
+	// Upload the file to IPFS.
 	cid, err := sh.Add(tempFile)
 	if err != nil {
-		return fmt.Errorf("failed to add shard to IPFS: %w", err)
+		return fmt.Errorf("failed to add shard %s to IPFS: %w", shard.ID, err)
 	}
 	shard.CID = cid
-	log.Printf("Shard %s uploaded with CID: %s", shard.ID, cid)
+	log.Printf("[INFO] Shard %s uploaded to IPFS with CID: %s", shard.ID, cid)
 
-	// Write the encrypted shard data to a permanent file.
+	// Store a permanent copy locally.
 	permanentPath := filepath.Join(GetStorageDir(), shard.ID+".bin")
 	if err := os.WriteFile(permanentPath, shard.Data, 0644); err != nil {
-		log.Printf("[Warning] Failed to store permanent copy of shard %s: %v", shard.ID, err)
+		log.Printf("[WARNING] Permanent copy not stored for shard %s: %v", shard.ID, err)
 	} else {
-		log.Printf("[+] Permanent copy stored: %s", permanentPath)
+		log.Printf("[INFO] Permanent copy stored at: %s", permanentPath)
 	}
-
 	return nil
 }
 
-// UploadFileWithMetadata splits a file into shards, uploads them, computes a global CID, and returns metadata.
+// UploadFileWithMetadata splits the given file into shards, uploads each shard to IPFS,
+// computes a global file identifier (CID), and returns metadata.
 func UploadFileWithMetadata(filePath string) (FileMetadata, error) {
 	shards, err := SplitFileIntoShards(filePath)
 	if err != nil {
 		return FileMetadata{}, err
 	}
 
+	// Upload each shard to IPFS.
 	for i := range shards {
 		if err := UploadShardToIPFS(&shards[i]); err != nil {
-			return FileMetadata{}, err
+			return FileMetadata{}, fmt.Errorf("failed to upload shard %d: %w", i, err)
 		}
+		// Optionally track the shard in a global map.
+		mu.Lock()
+		ShardMap[shards[i].ID] = true
+		mu.Unlock()
 	}
 
+	// Concatenate all shard CIDs and compute a global CID.
 	var concatenated string
 	for _, shard := range shards {
 		concatenated += shard.CID
 	}
 	globalHash := sha256.Sum256([]byte(concatenated))
+	// Use first 16 bytes as a shortened global CID.
 	globalCID := hex.EncodeToString(globalHash[:16])
 
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
-		return FileMetadata{}, err
+		return FileMetadata{}, fmt.Errorf("failed to stat file %s: %w", filePath, err)
 	}
 
 	metadata := FileMetadata{
@@ -180,17 +193,17 @@ func UploadFileWithMetadata(filePath string) (FileMetadata, error) {
 		CID:      globalCID,
 		Shards:   shards,
 	}
+	log.Printf("[INFO] File %s processed with global CID: %s", metadata.FileName, metadata.CID)
 	return metadata, nil
 }
 
-// DownloadShardFromIPFS downloads a shard from IPFS using Cat() and decrypts it.
-// If IPFS returns empty data, it will error.
+// DownloadShardFromIPFS downloads a shard from IPFS by CID and decrypts it.
 func DownloadShardFromIPFS(cid string) ([]byte, error) {
 	sh := ConnectToIPFS()
 
 	reader, err := sh.Cat(cid)
 	if err != nil {
-		return nil, fmt.Errorf("failed to cat CID %s: %w", cid, err)
+		return nil, fmt.Errorf("failed to retrieve CID %s from IPFS: %w", cid, err)
 	}
 	defer reader.Close()
 
@@ -198,37 +211,37 @@ func DownloadShardFromIPFS(cid string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read data for CID %s: %w", cid, err)
 	}
-
-	log.Printf("Downloaded encrypted data length for shard %s: %d", cid, len(encryptedData))
+	log.Printf("[INFO] Downloaded encrypted shard data for CID %s (%d bytes)", cid, len(encryptedData))
 	if len(encryptedData) == 0 {
-		return nil, fmt.Errorf("downloaded shard data is empty for CID %s", cid)
+		return nil, fmt.Errorf("no data received for CID %s", cid)
 	}
 
 	plainData, err := DecryptData(encryptedData, encryptionKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt shard data (length: %d): %w", len(encryptedData), err)
+		return nil, fmt.Errorf("failed to decrypt data for CID %s: %w", cid, err)
 	}
 	return plainData, nil
 }
 
-// DownloadFile reconstructs the original file from its shards.
+// DownloadFile reconstructs the original file by downloading and decrypting each shard,
+// then writing them sequentially to outputPath.
 func DownloadFile(shards []Shard, outputPath string) error {
 	outputFile, err := os.Create(outputPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create output file %s: %w", outputPath, err)
 	}
 	defer outputFile.Close()
 
 	for _, shard := range shards {
 		data, err := DownloadShardFromIPFS(shard.CID)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to download shard with CID %s: %w", shard.CID, err)
 		}
-		_, err = outputFile.Write(data)
-		if err != nil {
-			return err
+		if _, err := outputFile.Write(data); err != nil {
+			return fmt.Errorf("failed to write shard %s to output: %w", shard.ID, err)
 		}
 	}
+	log.Printf("[INFO] File reconstructed and saved to %s", outputPath)
 	return nil
 }
 
@@ -243,7 +256,7 @@ func ListFiles() ([]map[string]interface{}, error) {
 		} `json:"Keys"`
 	}
 	if err := sh.Request("pin/ls").Exec(ctx, &result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to list pinned files: %w", err)
 	}
 
 	var fileList []map[string]interface{}
@@ -253,16 +266,16 @@ func ListFiles() ([]map[string]interface{}, error) {
 			"type": info.Type,
 		})
 	}
-
 	return fileList, nil
 }
 
 // GetFilePath returns a local path for a given CID (stub implementation).
 func GetFilePath(cid string) (string, error) {
-	return "/path/to/file", nil
+	// In production, map the CID to a local file if available.
+	return filepath.Join(GetStorageDir(), cid+".bin"), nil
 }
 
-// GetShardCount returns the number of shards stored.
+// GetShardCount returns the number of stored shards.
 func GetShardCount() int {
 	mu.Lock()
 	defer mu.Unlock()
@@ -272,5 +285,5 @@ func GetShardCount() int {
 // StartStorageService initializes the storage service.
 func StartStorageService() {
 	InitializeStorage()
-	log.Println("Storage service started")
+	log.Println("[INFO] Storage service started")
 }

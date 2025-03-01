@@ -9,7 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 )
 
-// GenerateKeyPair creates a new Ed25519 keypair for P2P security.
+// GenerateKeyPair creates a new Ed25519 key pair for P2P security.
 func GenerateKeyPair() (crypto.PrivKey, crypto.PubKey, error) {
 	privKey, pubKey, err := crypto.GenerateKeyPair(crypto.Ed25519, -1)
 	if err != nil {
@@ -18,7 +18,8 @@ func GenerateKeyPair() (crypto.PrivKey, crypto.PubKey, error) {
 	return privKey, pubKey, nil
 }
 
-// SecureP2PNode creates a secure libp2p node using the generated key pair.
+// SecureP2PNode creates and returns a secure libp2p node using a newly generated key pair.
+// Additional libp2p options can be added here as needed.
 func SecureP2PNode() (host.Host, error) {
 	privKey, _, err := GenerateKeyPair()
 	if err != nil {
@@ -30,6 +31,6 @@ func SecureP2PNode() (host.Host, error) {
 		return nil, fmt.Errorf("failed to create P2P node: %v", err)
 	}
 
-	log.Println("🔐 Secure P2P Node Created:", node.ID())
+	log.Println("[INFO] Secure P2P Node created with ID:", node.ID())
 	return node, nil
 }

@@ -21,11 +21,12 @@ import (
 	"github.com/ArguableExorcist8/desvault-storage-node/auth"
 	"github.com/ArguableExorcist8/desvault-storage-node/encryption"
 	"github.com/ArguableExorcist8/desvault-storage-node/network"
+	"github.com/ArguableExorcist8/desvault-storage-node/p2p"
 	"github.com/ArguableExorcist8/desvault-storage-node/rewards"
 	"github.com/ArguableExorcist8/desvault-storage-node/setup"
+	"github.com/ArguableExorcist8/desvault-storage-node/shards"
 	"github.com/ArguableExorcist8/desvault-storage-node/storage"
 	"github.com/ArguableExorcist8/desvault-storage-node/utils"
-	"github.com/ArguableExorcist8/desvault-storage-node/p2p"
 
 	"github.com/gin-gonic/gin"
 	"github.com/quic-go/quic-go"
@@ -37,39 +38,38 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// ### Constants
+// Constants used for file upload/download limits.
 const (
 	ModerateUploadSpeed   = "5–10 Mbps"
 	ModerateDownloadSpeed = "10–25 Mbps"
-	MaxFileSizeBytes      = 524288000 // 500 MB in bytes.
+	MaxFileSizeBytes      = 524288000 // 500 MB
 )
 
-// ### Global Variables
+// Global variables.
 var (
 	port = getEnv("PORT", "8080")
 	db   *gorm.DB
 )
 
-// ### Node Discovery & Startup
+// StartNode initializes the node’s wallet, peer discovery, and network registration.
 func StartNode() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Load production configuration
 	config, err := setup.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %v", err)
 	}
 	log.Println("[INFO] Production configuration loaded.")
 
-	// Initialize wallet authentication
+	// Initialize wallet authentication.
 	if err := auth.InitializeWallet(config.WalletConfig); err != nil {
 		return fmt.Errorf("wallet initialization failed: %v", err)
 	}
 	log.Println("[INFO] Wallet authentication initialized.")
 
-	// Start peer discovery
-	h, dht, err := p2p.StartLibp2pDiscovery()
+	// Start peer discovery.
+	h, dhtService, err := p2p.StartLibp2pDiscovery()
 	if err != nil {
 		return fmt.Errorf("failed to start peer discovery: %v", err)
 	}
@@ -78,27 +78,27 @@ func StartNode() error {
 		log.Printf("[INFO] Listening on: %s/p2p/%s", addr, h.ID().String())
 	}
 
-	// Register node with the network
+	// Register node on the network.
 	if err := network.RegisterNode(h, config); err != nil {
 		return fmt.Errorf("failed to register node on the network: %v", err)
 	}
 	log.Println("[INFO] Node registered on the network.")
 
-	// Manage DHT lifecycle
+	// Close DHT on shutdown.
 	go func() {
 		<-ctx.Done()
-		if err := dht.Close(); err != nil {
+		if err := dhtService.Close(); err != nil {
 			log.Printf("[ERROR] Failed to close DHT: %v", err)
 		}
 		log.Println("[INFO] DHT closed.")
 	}()
 
-	// Start network monitoring
+	// Start network monitoring.
 	go network.MonitorNetwork(h)
 
 	log.Println("[INFO] Node startup completed successfully.")
 
-	// Wait for shutdown signal
+	// Wait for shutdown signal.
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	<-sigChan
@@ -106,7 +106,7 @@ func StartNode() error {
 	return nil
 }
 
-// ### Shared Helpers
+// Shared helpers.
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -115,19 +115,19 @@ func getEnv(key, defaultValue string) string {
 }
 
 func generateAuthToken() string {
-	token, err := utils.GenerateSecureToken(32) // Use a secure token generator
+	token, err := utils.GenerateSecureToken(32)
 	if err != nil {
 		log.Printf("[ERROR] Failed to generate auth token: %v", err)
-		return fmt.Sprintf("%x", time.Now().UnixNano()) // Fallback
+		return fmt.Sprintf("%x", time.Now().UnixNano())
 	}
 	return token
 }
 
 func generateCID() string {
-	cid, err := utils.GenerateCID() // Assume utils provides a proper CID generator
+	cid, err := utils.GenerateCID()
 	if err != nil {
 		log.Printf("[ERROR] Failed to generate CID: %v", err)
-		return fmt.Sprintf("%016d", rand.Int63()) // Fallback
+		return fmt.Sprintf("%016d", rand.Int63())
 	}
 	return cid
 }
@@ -150,7 +150,7 @@ func formatFileSize(size int64) string {
 	}
 }
 
-// ### Database Models & Converters
+// Database models & converters.
 type FileMetadataModel struct {
 	CID       string         `gorm:"column:cid;primaryKey;not null;size:255" json:"cid"`
 	FileName  string         `gorm:"size:255" json:"fileName"`
@@ -214,7 +214,7 @@ func initDB() {
 	log.Println("[INFO] Database initialized successfully.")
 }
 
-// ### Middleware Definitions
+// Middleware definitions.
 var (
 	visitors = make(map[string]*rate.Limiter)
 	mtx      sync.Mutex
@@ -226,7 +226,7 @@ func getVisitor(ip string) *rate.Limiter {
 	if limiter, exists := visitors[ip]; exists {
 		return limiter
 	}
-	limiter := rate.NewLimiter(rate.Every(time.Second), 5) // 5 requests per second
+	limiter := rate.NewLimiter(rate.Every(time.Second), 5)
 	visitors[ip] = limiter
 	return limiter
 }
@@ -263,7 +263,7 @@ func authMiddleware(c *gin.Context) {
 		return
 	}
 	token = strings.TrimPrefix(token, "Bearer ")
-	if !auth.ValidateToken(token) { // Assume auth provides token validation
+	if !auth.ValidateToken(token) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 			"code":    http.StatusUnauthorized,
 			"message": "Invalid or expired token",
@@ -273,7 +273,7 @@ func authMiddleware(c *gin.Context) {
 	c.Next()
 }
 
-// ### CLI Banner Functions
+// CLI banner functions.
 func printCLIBanner() {
 	fmt.Println(`
 ██████╗ ███████╗███████╗██╗   ██╗ █████╗ ██╗   ██╗██╗ ████████╗
@@ -300,7 +300,7 @@ func printChatBanner() {
 	fmt.Println("Type your message and press Enter to send. Press Ctrl+C to exit.")
 }
 
-// ### IPFS Auto-Start Helpers
+// IPFS auto-start helpers.
 func isIPFSRunning() bool {
 	resp, err := http.Get("http://localhost:5001/api/v0/version")
 	if err != nil {
@@ -326,6 +326,7 @@ func startIPFSDaemon() error {
 		}
 		return fmt.Errorf("failed to start IPFS daemon: %w", err)
 	}
+	// Wait for the daemon to become responsive.
 	for i := 0; i < 10; i++ {
 		time.Sleep(2 * time.Second)
 		if isIPFSRunning() {
@@ -336,7 +337,7 @@ func startIPFSDaemon() error {
 	return fmt.Errorf("IPFS daemon failed to start within timeout")
 }
 
-// ### Node Startup Functions
+// Node startup function.
 func startNode(ctx context.Context) {
 	authToken := generateAuthToken()
 	log.Printf("[INFO] New authentication token generated: %s", authToken)
@@ -345,9 +346,9 @@ func startNode(ctx context.Context) {
 	fmt.Printf("Uptime: %s\n", setup.GetUptime())
 	storageGB, _ := setup.ReadStorageAllocation()
 	fmt.Printf("Storage: %d GB\n", storageGB)
-	points := rewards.CalculatePoints(storageGB) // Assume rewards provides this
+	points := rewards.CalculatePoints(storageGB)
 	fmt.Printf("Points: %d\n", points)
-	shardsCount := storage.GetShardCount() // Assume storage provides this
+	shardsCount := storage.GetShardCount()
 	fmt.Printf("Shards: %d\n", shardsCount)
 
 	if os.Getenv("SEED_NODE") == "true" {
@@ -387,7 +388,7 @@ func startNode(ctx context.Context) {
 	fmt.Printf("Allocated Storage: %d GB\n", storageGB)
 	fmt.Printf("Estimated Rewards: %d pts/hour\n", storageGB*100)
 
-	// Announce storage contribution
+	// Announce storage contribution.
 	if err := ads.AnnounceStorage(storageGB); err != nil {
 		log.Printf("[ERROR] Failed to announce storage: %v", err)
 	} else {
@@ -398,7 +399,7 @@ func startNode(ctx context.Context) {
 	log.Printf("[INFO] Node fully operational. Auth Token: %s", authToken)
 }
 
-// ### API Server Startup Function
+// API server startup.
 func startAPIServer() {
 	router := gin.New()
 	router.Use(gin.Logger())
@@ -461,12 +462,12 @@ func startAPIServer() {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"code":         http.StatusOK,
-			"message":      "File uploaded successfully",
-			"data":         model,
-			"uploadSpeed":  ModerateUploadSpeed,
+			"code":          http.StatusOK,
+			"message":       "File uploaded successfully",
+			"data":          model,
+			"uploadSpeed":   ModerateUploadSpeed,
 			"downloadSpeed": ModerateDownloadSpeed,
-			"maxFileSize":  "500 MB",
+			"maxFileSize":   "500 MB",
 		})
 	})
 
@@ -525,7 +526,7 @@ func startAPIServer() {
 	}
 }
 
-// ### Service Health Check
+// Service health check.
 func getNodeStatus() string {
 	ipfsStatus := "DOWN"
 	if isIPFSRunning() {
@@ -545,7 +546,7 @@ func getNodeStatus() string {
 	return fmt.Sprintf("IPFS: %s, Network: %s (%d peers), Database: %s", ipfsStatus, networkStatus, len(peers), dbStatus)
 }
 
-// ### CLI Commands
+// CLI commands.
 var rootCmd = &cobra.Command{
 	Use:   "desvault",
 	Short: "DesVault Storage Node CLI",
@@ -676,11 +677,11 @@ var memeCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		printCLIBanner()
 		bigMemes := []string{
-			`(╯°□°）╯︵ ┻━┻`,
-			`ʕ•ᴥ•ʔ`,
-			`¯\_(ツ)_/¯`,
-			`(ง'̀-'́)ง`,
-			`(ಥ_ಥ)`,
+			"(╯°□°）╯︵ ┻━┻",
+			"ʕ•ᴥ•ʔ",
+			"¯\\_(ツ)_/¯",
+			"(ง'̀-'́)ง",
+			"(ಥ_ಥ)",
 		}
 		index := time.Now().Unix() % int64(len(bigMemes))
 		fmt.Println(bigMemes[index])
@@ -772,7 +773,7 @@ var tlsCmd = &cobra.Command{
 	},
 }
 
-// ### Main Execution
+// Main CLI execution.
 func Execute() {
 	rootCmd.AddCommand(runCmd, stopCmd, statusCmd, storageCmd, memeCmd, chatCmd, rewardsCmd, tlsCmd)
 	if err := rootCmd.Execute(); err != nil {
