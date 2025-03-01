@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/gin-gonic/gin"
 )
 
@@ -24,7 +25,43 @@ var (
 	walletAddress string
 	// walletLock protects concurrent access to the wallet address.
 	walletLock sync.Mutex
+
+	// ks is the global keystore instance.
+	ks *keystore.KeyStore
 )
+
+// InitializeWallet initializes the wallet using the provided configuration.
+// In production, walletConfig is the path to the keystore directory.
+// It loads the wallet, unlocks the first account using the password from the environment variable,
+// and stores the wallet address for later use.
+func InitializeWallet(walletConfig string) error {
+	if walletConfig == "" {
+		return fmt.Errorf("walletConfig is empty")
+	}
+
+	// Create a new keystore instance.
+	ks = keystore.NewKeyStore(walletConfig, keystore.StandardScryptN, keystore.StandardScryptP)
+	if len(ks.Accounts()) == 0 {
+		return fmt.Errorf("no accounts found in wallet at %s", walletConfig)
+	}
+
+	// Retrieve the wallet password from the environment.
+	pass := os.Getenv("WALLET_PASSWORD")
+	if pass == "" {
+		return fmt.Errorf("WALLET_PASSWORD environment variable not set")
+	}
+
+	// Unlock the first account.
+	account := ks.Accounts()[0]
+	if err := ks.Unlock(account, pass); err != nil {
+		return fmt.Errorf("failed to unlock wallet: %v", err)
+	}
+
+	// Store the wallet address globally.
+	walletAddress = account.Address.Hex()
+	log.Println("[INFO] Wallet initialized and unlocked for account:", walletAddress)
+	return nil
+}
 
 // LoadWalletAddress loads the EVM wallet address from an environment variable or, if not set,
 // prompts the user to enter it. The address is then stored globally.

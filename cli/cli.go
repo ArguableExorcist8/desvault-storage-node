@@ -23,7 +23,7 @@ import (
 	"github.com/ArguableExorcist8/desvault-storage-node/setup"
 	"github.com/ArguableExorcist8/desvault-storage-node/storage"
 	"github.com/ArguableExorcist8/desvault-storage-node/utils"
-	"github.com/ArguableExorcist8/desvault-storage-node/p2p" 
+	"github.com/ArguableExorcist8/desvault-storage-node/p2p"
 
 	"github.com/gin-gonic/gin"
 	"github.com/quic-go/quic-go"
@@ -57,36 +57,35 @@ func StartNode() error {
 	}
 	log.Println("[INFO] Wallet authentication initialized.")
 
-	// Start peer discovery using the updated libp2p-based discovery with timeout.
-	h, dht, err := peer_discovery.StartLibp2pDiscovery()
+	// Start peer discovery using the p2p package.
+	h, dht, err := p2p.StartLibp2pDiscovery()
 	if err != nil {
 		return fmt.Errorf("failed to start peer discovery: %v", err)
 	}
-	log.Printf("[INFO] Node started with Peer ID: %s", h.ID().Pretty())
+	log.Printf("[INFO] Node started with Peer ID: %s", h.ID().String())
 	for _, addr := range h.Addrs() {
-		log.Printf("[INFO] Listening on: %s/p2p/%s", addr, h.ID().Pretty())
+		log.Printf("[INFO] Listening on: %s/p2p/%s", addr, h.ID().String())
 	}
 
-	// Register the node with the network registry (e.g., update a bootstrap list, central directory, etc.)
+	// Register the node with the network registry.
 	if err := network.RegisterNode(h, config); err != nil {
 		return fmt.Errorf("failed to register node on the network: %v", err)
 	}
 	log.Println("[INFO] Node registered on the network.")
 
-	// Start a background routine to keep the DHT active and to close it gracefully on shutdown.
+	// Start a background routine to keep the DHT active and close it on shutdown.
 	go func() {
 		<-ctx.Done()
 		dht.Close()
 		log.Println("[INFO] DHT closed due to context cancellation.")
 	}()
 
-	// Optionally launch additional background monitoring routines.
+	// Launch background network monitoring.
 	go network.MonitorNetwork(h)
 
 	log.Println("[INFO] Node startup completed successfully. The node is now fully operational.")
 
 	// Keep the node running indefinitely.
-	// In a real production scenario, you might block on a signal or an error channel.
 	select {}
 }
 
@@ -100,7 +99,6 @@ const (
 	MaxFileSizeBytes      = 524288000 // 500 MB in bytes.
 )
 
-// getEnv returns the value of an environment variable or a default.
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -134,9 +132,8 @@ func formatFileSize(size int64) string {
 		return fmt.Sprintf("%.2f KB", float64(size)/KB)
 	} else if size < GB {
 		return fmt.Sprintf("%.2f MB", float64(size)/MB)
-	} else {
-		return fmt.Sprintf("%.2f GB", float64(size)/GB)
 	}
+	return fmt.Sprintf("%.2f GB", float64(size)/GB)
 }
 
 // ========================
@@ -188,7 +185,6 @@ func fileMetadataToModel(metadata storage.FileMetadata) (FileMetadataModel, erro
 	}, nil
 }
 
-// Global database handle.
 var db *gorm.DB
 
 func initDB() {
@@ -356,7 +352,7 @@ func startNode(ctx context.Context) {
 		log.Println("This node is running as a regular node. Attempting to discover seed nodes...")
 	}
 
-	// Initialize networking (which now includes updated discovery)
+	// Initialize networking.
 	ads, err := network.InitializeNode(ctx)
 	if err != nil {
 		log.Fatalf("Failed to initialize networking: %v", err)
@@ -548,36 +544,6 @@ func getNodeStatus() string {
 }
 
 // ========================
-// CLI Banner & Status Functions
-// ========================
-
-func printCLIBanner() {
-	fmt.Println(`
-██████╗ ███████╗███████╗██╗   ██╗ █████╗ ██╗   ██╗██╗ ████████╗
-██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██║   ██║██║ ╚══██╔══╝
-██║  ██║█████╗  ███████╗██║   ██║███████║██║   ██║██║    ██║   
-██║  ██║██╔══╝  ╚════██║██║   ██║██╔══██║██║   ██║██║    ██║   
-██████╔╝███████╗███████║╚██████╔╝██║  ██║╚██████╔╝███████║   
-╚═════╝ ╚══════╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝
-`)
-	fmt.Println("\nDesVault CLI")
-}
-
-func printChatBanner() {
-	fmt.Println(`
-██████╗ ███████╗███████╗██╗   ██╗ █████╗ ██╗   ██╗██╗ ████████╗
-██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██║   ██║██║ ╚══██╔══╝
-██║  ██║█████╗  ███████╗██║   ██║███████║██║   ██║██║    ██║   
-██║  ██║██╔══╝  ╚════██║██║   ██║██╔══██║██║   ██║██║    ██║   
-██████╔╝███████╗███████║╚██████╔╝██║  ██║╚██████╔╝███████║   
-╚═════╝ ╚══════╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝
-`)
-	fmt.Println("\nDesVault CLI Chatroom")
-	fmt.Println("-------------------------")
-	fmt.Println("Type your message and press Enter to send. Press Ctrl+C to exit the chatroom.")
-}
-
-// ========================
 // CLI Command Definitions
 // ========================
 
@@ -639,9 +605,9 @@ var runCmd = &cobra.Command{
 		initDB()
 		storage.InitializeStorage()
 
-		// Start the node including network initialization & discovery.
+		// Start the node.
 		ctx := context.Background()
-		startNode(ctx)
+		go startNode(ctx) // Run in background to allow API server to start.
 
 		// Start the API server.
 		startAPIServer()
