@@ -152,27 +152,23 @@ func formatFileSize(size int64) string {
 // -----------------------------------------------------------------------------
 
 func initDB() {
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		log.Fatal("DATABASE_URL not set")
-	}
+	dbURL := getEnv("DATABASE_URL", "host=localhost user=postgres password=postgres dbname=desvault_node port=5432 sslmode=disable")
 	var err error
 	db, err = gorm.Open(postgres.Open(dbURL), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
 	})
 	if err != nil {
-		log.Fatalf("failed to connect to database: %v", err)
+		log.Fatalf("[ERROR] Failed to connect to database: %v", err)
 	}
 	if err := db.AutoMigrate(&FileMetadataModel{}); err != nil {
-		log.Fatalf("failed to auto-migrate database: %v", err)
+		log.Fatalf("[ERROR] Failed to auto-migrate database: %v", err)
 	}
-	log.Println("[INFO] Database initialized successfully.")
+	log.Println("[INFO] Database initialized successfully for storage node.")
 }
 
 // -----------------------------------------------------------------------------
 // Middleware Definitions
 // -----------------------------------------------------------------------------
-
 var (
 	visitors = make(map[string]*rate.Limiter)
 	mtx      sync.Mutex
@@ -229,6 +225,31 @@ func authMiddleware(c *gin.Context) {
 		return
 	}
 	c.Next()
+}
+
+// -----------------------------------------------------------------------------
+// Register with Master API
+// -----------------------------------------------------------------------------
+func registerWithMasterAPI(ads *network.AutoDiscoveryService) error {
+	masterURL := getEnv("MASTER_API_URL", "http://localhost:9000")
+	url := fmt.Sprintf("%s/register", masterURL)
+	body, err := json.Marshal(map[string]string{
+		"peer_id": ads.Host.ID().String(),
+		"address": fmt.Sprintf("localhost:%s", port),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal registration data: %w", err)
+	}
+	resp, err := http.Post(url, "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		return fmt.Errorf("failed to register with master API: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("master API registration failed with status: %d", resp.StatusCode)
+	}
+	log.Println("[INFO] Successfully registered with master API")
+	return nil
 }
 
 // -----------------------------------------------------------------------------
@@ -390,6 +411,14 @@ func startAPIServer() {
 
 	authorized := router.Group("/", authMiddleware)
 
+	// API endpoints 
+    addr := ":" + port
+    log.Printf("[INFO] Starting API server on %s", addr)
+    if err := router.Run(addr); err != nil {
+	    log.Fatalf("[ERROR] API server failed: %v", err)
+    }
+}
+	
 	authorized.POST("/upload", func(c *gin.Context) {
 		file, err := c.FormFile("file")
 		if err != nil {
@@ -581,8 +610,20 @@ var runCmd = &cobra.Command{
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		ads, err := network.InitializeNode(ctx)
+		if err != nil {
+			log.Fatalf("[ERROR] Failed to initialize network: %v", err)
+		}
+
 		go startNode(ctx)
 		go startAPIServer()
+
+		// Register with master API
+		if err := registerWithMasterAPI(ads); err != nil {
+			log.Printf("[WARN] Failed to register with master API: %v", err)
+		} else {
+			log.Println("[INFO] Connected to DesVault network via master API")
+		}
 
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -757,7 +798,7 @@ var tlsCmd = &cobra.Command{
 	},
 }
 
-// Execute sets up and runs the CLI.
+// Execute
 func Execute() {
 	rootCmd.AddCommand(runCmd, stopCmd, statusCmd, storageCmd, memeCmd, chatCmd, rewardsCmd, tlsCmd)
 	if err := rootCmd.Execute(); err != nil {

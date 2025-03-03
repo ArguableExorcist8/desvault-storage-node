@@ -14,16 +14,13 @@ import (
 	"github.com/ArguableExorcist8/desvault-storage-node/storage"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/driver/postgres"
 	"gorm.io/datatypes"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-// --------------------
 // Configuration Helpers
-// --------------------
-
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -34,46 +31,11 @@ func getEnv(key, defaultValue string) string {
 var (
 	authToken = getEnv("AUTH_TOKEN", "secret123")
 	port      = getEnv("PORT", "8080")
-	dbURL     = os.Getenv("DATABASE_URL") // e.g., "host=localhost user=desvaultuser password=mysecret dbname=desvault port=5432 sslmode=disable"
+	db        *gorm.DB
 )
 
-// --------------------
-// Helper Functions
-// --------------------
-
-// generateCID returns a random 16-digit numeric string.
-func generateCID() string {
-	digits := make([]byte, 16)
-	for i := 0; i < 16; i++ {
-		digits[i] = '0' + byte(rand.Intn(10))
-	}
-	return string(digits)
-}
-
-// formatFileSize converts a file size in bytes to a human‑readable string.
-func formatFileSize(size int64) string {
-	const (
-		KB = 1024
-		MB = KB * 1024
-		GB = MB * 1024
-	)
-	if size < KB {
-		return fmt.Sprintf("%d B", size)
-	} else if size < MB {
-		return fmt.Sprintf("%.2f KB", float64(size)/KB)
-	} else if size < GB {
-		return fmt.Sprintf("%.2f MB", float64(size)/MB)
-	} else {
-		return fmt.Sprintf("%.2f GB", float64(size)/GB)
-	}
-}
-
-// --------------------
-// Database Model
-// --------------------
-
+// Database Models
 type FileMetadataModel struct {
-	// Force the column name to be "cid" instead of the default "c_id"
 	CID       string         `gorm:"column:cid;primaryKey;not null;size:255" json:"cid"`
 	FileName  string         `gorm:"size:255" json:"fileName"`
 	Note      string         `gorm:"size:255" json:"note"`
@@ -118,16 +80,35 @@ func fileMetadataToModel(metadata storage.FileMetadata) (FileMetadataModel, erro
 	}, nil
 }
 
-// --------------------
-// Global Database Handle
-// --------------------
-
-var db *gorm.DB
-
-func initDB() {
-	if dbURL == "" {
-		log.Fatal("DATABASE_URL not set")
+// Helper Functions
+func generateCID() string {
+	digits := make([]byte, 16)
+	for i := 0; i < 16; i++ {
+		digits[i] = '0' + byte(rand.Intn(10))
 	}
+	return string(digits)
+}
+
+func formatFileSize(size int64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+	)
+	if size < KB {
+		return fmt.Sprintf("%d B", size)
+	} else if size < MB {
+		return fmt.Sprintf("%.2f KB", float64(size)/KB)
+	} else if size < GB {
+		return fmt.Sprintf("%.2f MB", float64(size)/MB)
+	} else {
+		return fmt.Sprintf("%.2f GB", float64(size)/GB)
+	}
+}
+
+// Database Initialization
+func initDB() {
+	dbURL := getEnv("DATABASE_URL", "host=localhost user=postgres password=postgres dbname=desvault_node port=5432 sslmode=disable")
 	var err error
 	db, err = gorm.Open(postgres.Open(dbURL), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
@@ -135,23 +116,13 @@ func initDB() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-
-	// For development purposes, drop the table if it exists to refresh the schema.
-	if db.Migrator().HasTable(&FileMetadataModel{}) {
-		if err := db.Migrator().DropTable(&FileMetadataModel{}); err != nil {
-			log.Fatalf("failed to drop table: %v", err)
-		}
-	}
-
 	if err := db.AutoMigrate(&FileMetadataModel{}); err != nil {
 		log.Fatalf("failed to auto-migrate database: %v", err)
 	}
+	log.Println("[INFO] Database initialized successfully.")
 }
 
-// --------------------
 // Middleware
-// --------------------
-
 func authMiddleware(c *gin.Context) {
 	if c.GetHeader("Authorization") != "Bearer "+authToken {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -172,8 +143,10 @@ func secureHeadersMiddleware() gin.HandlerFunc {
 	}
 }
 
-var visitors = make(map[string]*Visitor)
-var visitorsMutex sync.Mutex
+var (
+	visitors      = make(map[string]*Visitor)
+	visitorsMutex sync.Mutex
+)
 
 type Visitor struct {
 	LastSeen time.Time
@@ -203,10 +176,7 @@ func rateLimitMiddleware() gin.HandlerFunc {
 	}
 }
 
-// --------------------
 // Main
-// --------------------
-
 func main() {
 	rand.Seed(time.Now().UnixNano())
 	initDB()
@@ -217,21 +187,20 @@ func main() {
 	router.Use(gin.Recovery())
 	router.Use(secureHeadersMiddleware())
 	router.Use(rateLimitMiddleware())
-    router.Use(func(c *gin.Context) {
-    c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-    c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    c.Writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-    c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
-    if c.Request.Method == "OPTIONS" {
-        c.AbortWithStatus(http.StatusNoContent)
-        return
-    }
-    c.Next()
-})
+	router.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
+	})
 
 	authorized := router.Group("/", authMiddleware)
 
-	// POST /upload: Upload a file.
 	authorized.POST("/upload", func(c *gin.Context) {
 		file, err := c.FormFile("file")
 		if err != nil {
@@ -241,13 +210,10 @@ func main() {
 			})
 			return
 		}
-
-		// Get note from form data.
 		note := c.PostForm("note")
 		if note == "" {
 			note = "No note available"
 		}
-
 		tempPath := filepath.Join(os.TempDir(), file.Filename)
 		if err := c.SaveUploadedFile(file, tempPath); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -256,7 +222,7 @@ func main() {
 			})
 			return
 		}
-
+		defer os.Remove(tempPath)
 		metadata, err := storage.UploadFileWithMetadata(tempPath)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -265,14 +231,10 @@ func main() {
 			})
 			return
 		}
-
 		newCID := generateCID()
 		metadata.CID = newCID
-		log.Printf("Generated 16-digit CID for file %s: %s", file.Filename, newCID)
-
-		// Convert file size to human-readable format.
+		log.Printf("[INFO] Generated CID for file %s: %s", file.Filename, newCID)
 		fileSizeStr := formatFileSize(file.Size)
-
 		model, err := fileMetadataToModel(metadata)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -281,11 +243,9 @@ func main() {
 			})
 			return
 		}
-		model.CID = newCID
 		model.Note = note
 		model.FileSize = fileSizeStr
 		model.CreatedAt = time.Now()
-
 		if err := db.Create(&model).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"code":    http.StatusInternalServerError,
@@ -293,7 +253,6 @@ func main() {
 			})
 			return
 		}
-
 		c.JSON(http.StatusOK, gin.H{
 			"code":    http.StatusOK,
 			"message": "File uploaded successfully",
@@ -301,7 +260,6 @@ func main() {
 		})
 	})
 
-	// GET /files: List uploaded files.
 	authorized.GET("/files", func(c *gin.Context) {
 		var models []FileMetadataModel
 		if err := db.Find(&models).Error; err != nil {
@@ -326,52 +284,51 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"files": responses})
 	})
 
-// GET /download/:cid: Download a file using its CID.
-authorized.GET("/download/:cid", func(c *gin.Context) {
-    cid := c.Param("cid")
-    var model FileMetadataModel
-    if err := db.First(&model, "cid = ?", cid).Error; err != nil {
-        if err == gorm.ErrRecordNotFound {
-            c.JSON(http.StatusNotFound, gin.H{
-                "code":    http.StatusNotFound,
-                "message": "File metadata not found",
-            })
-        } else {
-            c.JSON(http.StatusInternalServerError, gin.H{
-                "code":    http.StatusInternalServerError,
-                "message": fmt.Sprintf("Database error: %v", err),
-            })
-        }
-        return
-    }
-    var shards []storage.Shard
-    if err := json.Unmarshal(model.Shards, &shards); err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{
-            "code":    http.StatusInternalServerError,
-            "message": fmt.Sprintf("Error parsing shards: %v", err),
-        })
-        return
-    }
-    metadata := storage.FileMetadata{
-        CID:      model.CID,
-        FileName: model.FileName,
-        Shards:   shards,
-    }
-    outputPath := filepath.Join(os.TempDir(), model.FileName)
-    if err := storage.DownloadFile(metadata.Shards, outputPath); err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{
-            "code":    http.StatusInternalServerError,
-            "message": fmt.Sprintf("Error reconstructing file: %v", err),
-        })
-        return
-    }
-    // Serve the file with its original name as an attachment.
-    c.FileAttachment(outputPath, model.FileName)
-})
+	authorized.GET("/download/:cid", func(c *gin.Context) {
+		cid := c.Param("cid")
+		var model FileMetadataModel
+		if err := db.First(&model, "cid = ?", cid).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{
+					"code":    http.StatusNotFound,
+					"message": "File metadata not found",
+				})
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"code":    http.StatusInternalServerError,
+					"message": fmt.Sprintf("Database error: %v", err),
+				})
+			}
+			return
+		}
+		var shards []storage.Shard
+		if err := json.Unmarshal(model.Shards, &shards); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code":    http.StatusInternalServerError,
+				"message": fmt.Sprintf("Error parsing shards: %v", err),
+			})
+			return
+		}
+		metadata := storage.FileMetadata{
+			CID:      model.CID,
+			FileName: model.FileName,
+			Shards:   shards,
+		}
+		outputPath := filepath.Join(os.TempDir(), model.FileName)
+		if err := storage.DownloadFile(metadata.Shards, outputPath); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code":    http.StatusInternalServerError,
+				"message": fmt.Sprintf("Error reconstructing file: %v", err),
+			})
+			return
+		}
+		defer os.Remove(outputPath)
+		c.FileAttachment(outputPath, model.FileName)
+	})
 
 	addr := ":" + port
-	log.Printf("Server running on %s", addr)
+	log.Printf("[INFO] Server running on %s", addr)
 	if err := router.Run(addr); err != nil {
-		log.Fatalf("Server failed: %v", err)
+		log.Fatalf("[ERROR] Server failed: %v", err)
 	}
 }
