@@ -169,6 +169,7 @@ func initDB() {
 // -----------------------------------------------------------------------------
 // Middleware Definitions
 // -----------------------------------------------------------------------------
+
 var (
 	visitors = make(map[string]*rate.Limiter)
 	mtx      sync.Mutex
@@ -230,6 +231,7 @@ func authMiddleware(c *gin.Context) {
 // -----------------------------------------------------------------------------
 // Register with Master API
 // -----------------------------------------------------------------------------
+
 func registerWithMasterAPI(ads *network.AutoDiscoveryService) error {
 	masterURL := getEnv("MASTER_API_URL", "http://localhost:9000")
 	url := fmt.Sprintf("%s/register", masterURL)
@@ -411,14 +413,7 @@ func startAPIServer() {
 
 	authorized := router.Group("/", authMiddleware)
 
-	// API endpoints 
-    addr := ":" + port
-    log.Printf("[INFO] Starting API server on %s", addr)
-    if err := router.Run(addr); err != nil {
-	    log.Fatalf("[ERROR] API server failed: %v", err)
-    }
-}
-	
+	// API endpoints
 	authorized.POST("/upload", func(c *gin.Context) {
 		file, err := c.FormFile("file")
 		if err != nil {
@@ -798,7 +793,7 @@ var tlsCmd = &cobra.Command{
 	},
 }
 
-// Execute
+// Execute adds all child commands to the root command and sets flags appropriately.
 func Execute() {
 	rootCmd.AddCommand(runCmd, stopCmd, statusCmd, storageCmd, memeCmd, chatCmd, rewardsCmd, tlsCmd)
 	if err := rootCmd.Execute(); err != nil {
